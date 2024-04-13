@@ -54,6 +54,11 @@ def options(opt):
                    default=False, action='store_true')
     opt.add_option('-L', '--enable-leaksan', dest='leaksan',
                    default=False, action='store_true')
+    opt.add_option('', '--enable-saucr-test', dest='enable_saucr_test',
+                   default=False, action='store_true')
+    opt.add_option('', '--enable-saucr-perf-test', dest='enable_saucr_perf_test',
+                   default=False, action='store_true')
+    
     opt.parse_args();
 
 def configure(conf):
@@ -80,6 +85,7 @@ def configure(conf):
     _enable_simulate_wan(conf)
     _enable_db_checksum(conf)
     _enable_leaksan(conf)
+    _enable_saucr(conf)
 
     conf.env.append_value("CXXFLAGS", "-Wno-reorder")
     conf.env.append_value("CXXFLAGS", "-Wno-comment")
@@ -302,6 +308,14 @@ def _enable_ipc(conf):
         Logs.pprint("PINK", "Use IPC instead of network socket")
         conf.env.append_value("CXXFLAGS", "-DUSE_IPC")
 
+def _enable_saucr(conf):
+    if Options.options.enable_saucr_test:
+        Logs.pprint("PINK", "Enable SAUCR test")
+        conf.env.append_value("CXXFLAGS", "-DSAUCR_TEST_CORO")
+    if Options.options.enable_saucr_perf_test:
+        Logs.pprint("PINK", "Enable SAUCR perf test")
+        conf.env.append_value("CXXFLAGS", "-DSAUCR_PERF_TEST_CORO")
+
 def _enable_debug(conf):
     if Options.options.debug:
         Logs.pprint("PINK", "Debug support enabled")
@@ -322,7 +336,7 @@ def _properly_split(args):
         return args.split()
 
 def _gen_srpc_headers():
-    for srpc in glob.glob("deptran/*/*.rpc"):
+    for srpc in glob.glob("src/deptran/*/*.rpc"):
         target = os.path.splitext(srpc)[0]+'.h'
         _depend(target,
                 srpc,
