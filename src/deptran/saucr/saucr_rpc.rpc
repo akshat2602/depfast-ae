@@ -1,0 +1,7 @@
+namespace janus;
+
+abstract service Saucr {
+
+    defer Start(MarshallDeputy md_cmd,
+                string dkey);
+}
