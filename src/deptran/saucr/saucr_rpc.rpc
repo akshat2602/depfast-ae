@@ -1,7 +1,31 @@
 namespace janus;
 
 abstract service Saucr {
+    defer Propose(
+        uint64_t l_id,
+        uint64_t epoch,
+        uint64_t zxid,
+        MarshallDeputy data |
+        bool_t ack_received
+    );
 
-    defer Start(MarshallDeputy md_cmd,
-                string dkey);
+    defer Commit(
+        uint64_t l_id,
+        uint64_t epoch,
+        uint64_t zxid |
+        bool_t f_ok
+    );
+
+    defer Heartbeat(
+        uint64_t l_id,
+        uint64_t epoch |
+        bool_t f_ok
+    );
+
 }
+
+struct LogEntry {
+    uint64_t epoch;
+    uint64_t zxid;
+    MarshallDeputy data;
+};

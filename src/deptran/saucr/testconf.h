@@ -12,6 +12,8 @@ namespace janus
 // servers have 1/10 chance of being disconnected to the network N = Numerator, D = Denominator
 #define DOWNRATE_N 1
 #define DOWNRATE_D 10
+// Give a generous 5 seconds for elections
+#define ELECTIONTIMEOUT 5000000
 
 #define Print(format, ...) fprintf(stderr, format "\n", ##__VA_ARGS__)
 
@@ -37,7 +39,7 @@ namespace janus
 
     private:
         static SaucrFrame **replicas;
-        static std::vector<int> committed_cmds[NSERVERS];
+        static std::vector<pair<int, int>> committed_cmds[NSERVERS];
         static uint64_t rpc_count_last[NSERVERS];
 
         // disconnected_[svr] true if svr is disconnected by Disconnect()/Reconnect()
@@ -55,9 +57,6 @@ namespace janus
         // logged to this test's data structures.
         void SetLearnerAction(void);
 
-        // sets up learner action functions for the servers to the passed callback function
-        void SetCustomLearnerAction(function<function<void(Marshallable &)>(int)> callback);
-
         // Akshat: Setup perf test coro
 #ifdef SAUCR_PERF_TEST_CORO
         // sets up commit learner action functions for the servers to the passed callback function
@@ -65,60 +64,51 @@ namespace janus
 #endif
 
         // Calls Start() to specified server
-        void Start(int svr, int cmd, string dkey);
+        bool Start(int svr, int cmd, pair<uint64_t, uint64_t> *zxid);
 
-        // Calls GetInstance() to specified server
-        void GetInstance(int svr, int cmd, uint64_t *replica_id, uint64_t *instance_no);
+        // Akshat: Check if wait is needed in further tests
+        // Waits for at least n servers to commit index
+        // If commit takes too long, gives up after a while.
+        // If term has moved on since the given start term, also gives up.
+        // Returns the committed value on success.
+        // -1 if it took too long for enough servers to commit
+        // -2 if term changed
+        // -3 if committed values for index differ
+        // int Wait(uint64_t index, int n, uint64_t epoch);
 
-        // Akshat: Change the getstate according to the protocol here
-        // Get state of the command at an instance replica_id.instance_no in a specified server
-        void GetState(int svr,
-                      uint64_t replica_id,
-                      uint64_t instance_no,
-                      shared_ptr<Marshallable> *cmd,
-                      string *string,
-                      uint64_t *seq,
-                      map<uint64_t, uint64_t> *deps,
-                      status_t *state);
+        // Calls GetState() to specified server
+        void GetState(int svr, bool *is_leader, uint64_t *epoch);
 
-        // Calls Prepare() to specified server
-        void Prepare(int svr, uint64_t replica_id, uint64_t instance_no);
+        // Returns committed values for server
+        vector<int> GetCommitted(int svr);
 
-        // Calls PauseExecution() in all servers
-        void PauseExecution(bool pause);
+        // Returns index of leader on success, < 0 on error.
+        // If expected is specified, only returns success if the leader == expected
+        // Only looks at servers that are not disconnected
+        int OneLeader(int expected = -1);
 
-        // Return all executed commands in the executed order
-        vector<int> GetExecutedCommands(int svr);
+        bool NoLeader(void);
 
-        // Returns 1 if n servers executed the command
-        int NExecuted(uint64_t tx_id, int n);
+        // Returns true if at least 1 server has a currentTerm
+        // number higher than term.
+        bool EpochMovedOn(uint64_t term);
 
-        // Returns number of servers committed the command if atleast n servers committed and
-        // Waits at most 2 seconds until n servers commit the command.
-        // 0 if it took too long for enough servers to commit
-        // -1 if committed values of command kind differ
-        int NCommitted(uint64_t replica_id, uint64_t instance_no, int n);
+        // Checks if all servers agree on a term
+        // Returns agreed upon term on success
+        // -1 if there's disagreement
+        uint64_t OneEpoch(void);
 
-        // Returns number of servers accepted the command
-        int NAccepted(uint64_t replica_id, uint64_t instance_no, int n);
+        // Returns number of servers that think zxid is committed.
+        // Checks if the committed value for zxid is the same across servers.
+        int NCommitted(pair<uint64_t, uint64_t> zxid);
 
         // Does one agreement.
         // Submits a command with value cmd to the leader
         // Waits at most 2 seconds until n servers commit the command.
         // Makes sure the value of the commits is the same as what was given.
-        // Retries the agreement until at most 10 seconds pass.
-        // Returns 1 if n servers committed the command and
-        // the committed cmd is the same across all commited servers.
-        // 0 if it took too long for enough servers to commit
-        // -1 if committed values of command kind differ
-        int DoAgreement(int cmd,
-                        string dkey,
-                        int n,
-                        bool retry,
-                        bool *cno_op,
-                        string *cdkey,
-                        uint64_t *cseq,
-                        map<uint64_t, uint64_t> *cdeps);
+        // If retry == true, Retries the agreement until at most 10 seconds pass.
+        // Returns index of committed agreement on success, 0 on error.
+        pair<uint64_t, uint64_t> DoAgreement(int cmd, int n, bool retry);
 
         // Disconnects server from rest of servers
         void Disconnect(int svr);
@@ -139,15 +129,6 @@ namespace janus
         void SetUnreliable(bool unreliable = true);
 
         bool IsUnreliable(void);
-
-        // Slow down connections of a server
-        void SetSlow(int svr, int msec);
-
-        // Reset a slowed server
-        void ResetSlow(int svr);
-
-        // Returns if any server is set slow
-        bool AnySlow(void);
 
         // Reconnects all disconnected servers
         // Waits on unreliable thread
@@ -180,6 +161,9 @@ namespace janus
         void disconnect(int svr, bool ignore = false);
         void reconnect(int svr, bool ignore = false);
         void slow(int svr, uint32_t msec);
+
+        // other internal helpers
+        int waitOneLeader(bool want_leader, int expected);
     };
 
 #endif

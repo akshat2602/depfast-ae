@@ -4,7 +4,6 @@
 #include "../coordinator.h"
 #include "../frame.h"
 
-// Akshat: Checkout the functions in coordinator and see if anything unnecessary is there
 namespace janus {
 
 class SaucrCommo;
@@ -21,10 +20,10 @@ class SaucrCoordinator : public Coordinator {
     return (SaucrCommo *) commo_;
   }
   
-  bool in_submission_ = false; // debug;
-  bool in_prepare_ = false; // debug
-  bool in_accept = false; // debug
-  bool in_append_entries = false; // debug
+  // bool in_submission_ = false; // debug;
+  // bool in_prepare_ = false; // debug
+  // bool in_accept = false; // debug
+  // bool in_append_entries = false; // debug
   uint64_t minIndex = 0;
  public:
   shared_ptr<Marshallable> cmd_{nullptr};

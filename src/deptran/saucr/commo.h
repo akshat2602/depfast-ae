@@ -2,7 +2,7 @@
 
 #include "../__dep__.h"
 #include "../communicator.h"
-// AKSHAT: Include saucr_rpc.h here once its generated
+#include "saucr_rpc.h"
 
 namespace janus
 {
