@@ -458,6 +458,7 @@ map<string, int> &Frame::FrameNameToMode() {
       {"mdcc",          MODE_MDCC},
       {"multi_paxos",   MODE_MULTI_PAXOS},
       {"fpga_raft",     MODE_FPGA_RAFT},
+      {"saucr",         MODE_SAUCR},
       {"epaxos",        MODE_NOT_READY},
       {"rep_commit",    MODE_NOT_READY}
   };
