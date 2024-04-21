@@ -1,6 +1,6 @@
 #include "testconf.h"
 #include "marshallable.h"
-#include "../classic/tpc_command.h"
+#include "zab_command.h"
 
 namespace janus
 {
@@ -31,9 +31,11 @@ namespace janus
         return s;
     }
 
-    // SaucrFrame **SaucrTestConfig::replicas = nullptr;
+    SaucrFrame **SaucrTestConfig::replicas = nullptr;
+    std::vector<pair<int, pair<uint64_t, uint64_t>>> SaucrTestConfig::committed_cmds[NSERVERS];
+    std::map<int, vector<string>> SaucrTestConfig::committed_zxids;
     // std::vector<int> SaucrTestConfig::committed_cmds[NSERVERS];
-    // uint64_t SaucrTestConfig::rpc_count_last[NSERVERS];
+    uint64_t SaucrTestConfig::rpc_count_last[NSERVERS];
 
     SaucrTestConfig::SaucrTestConfig(SaucrFrame **replicas_)
     {
@@ -42,8 +44,8 @@ namespace janus
         for (int i = 0; i < NSERVERS; i++)
         {
             replicas[i]->svr_->rep_frame_ = replicas[i]->svr_->frame_;
-            // Akshat: change this to accomodate for zxid
-            SaucrTestConfig::committed_cmds[i].push_back(-1);
+            SaucrTestConfig::committed_cmds[i].push_back(std::make_pair(-1, std::make_pair(0, 0)));
+            SaucrTestConfig::committed_zxids[i] = vector<string>();
             SaucrTestConfig::rpc_count_last[i] = 0;
             SaucrTestConfig::disconnected_[i] = false;
             SaucrTestConfig::slow_[i] = false;
@@ -58,11 +60,11 @@ namespace janus
         {
             replicas[i]->svr_->RegLearnerAction([i](Marshallable &cmd)
                                                 {
-      verify(cmd.kind_ == MarshallDeputy::CMD_TPC_COMMIT);
-      auto& command = dynamic_cast<TpcCommitCommand&>(cmd);
-      Log_debug("server %d committed value %d", i, command.tx_id_);
-      // Akshat: change this to accomodate for zxid
-      committed_cmds[i].push_back(command.tx_id_); });
+                    verify(cmd.kind_ == MarshallDeputy::CMD_ZAB_COMMIT);
+                    auto& command = dynamic_cast<ZABMarshallable&>(cmd);
+                    Log_debug("server %d committed value %d at zxid.epoch %d and zxid.transaction_id", i, command.cmd, command.zxid.first, command.zxid.second);
+                    SaucrTestConfig::committed_cmds[i].push_back(std::make_pair(command.cmd, command.zxid)); 
+                    SaucrTestConfig::committed_zxids[i].push_back(to_string(command.zxid.first) + ":" + to_string(command.zxid.second)); });
         }
     }
 
@@ -87,14 +89,11 @@ namespace janus
     bool SaucrTestConfig::Start(int svr, int cmd, pair<uint64_t, uint64_t> *zxid)
     {
         // Construct an empty TpcCommitCommand containing cmd as its tx_id_
-        auto cmdptr = std::make_shared<TpcCommitCommand>();
-        auto vpd_p = std::make_shared<VecPieceData>();
-        vpd_p->sp_vec_piece_data_ = std::make_shared<vector<shared_ptr<SimpleCommand>>>();
-        cmdptr->tx_id_ = cmd;
-        cmdptr->cmd_ = vpd_p;
+        auto cmdptr = std::make_shared<ZABMarshallable>();
+        cmdptr->cmd = cmd;
         auto cmdptr_m = dynamic_pointer_cast<Marshallable>(cmdptr);
         // call Start()
-        Log_debug("Starting agreement on svr %d for cmd id %d", svr, cmdptr->tx_id_);
+        Log_debug("Starting agreement on svr %d for cmd id %d", svr, cmdptr->cmd);
         return replicas[svr]->svr_->Start(cmdptr_m, zxid);
     }
 
@@ -105,7 +104,7 @@ namespace janus
         replicas[svr]->svr_->GetState(is_leader, epoch);
     }
 
-    vector<int> SaucrTestConfig::GetCommitted(int svr)
+    vector<pair<int, pair<uint64_t, uint64_t>>> SaucrTestConfig::GetCommitted(int svr)
     {
         return committed_cmds[svr];
     }
@@ -149,11 +148,11 @@ namespace janus
                     {
                         for (int i = 0; i < NSERVERS; i++)
                         {
-                            // Akshat: Change this to accomodate for zxid
-                            if (SaucrTestConfig::committed_cmds[i].size() > zxid[1])
+                            // Akshat: Check if this is working correctly
+                            if (SaucrTestConfig::committed_cmds[i].size() > zxid.second)
                             {
                                 Log_debug("found commit log");
-                                auto cmd2 = SaucrTestConfig::committed_cmds[i][zxid[1]];
+                                auto cmd2 = SaucrTestConfig::committed_cmds[i][zxid.second].first;
                                 if (cmd == cmd2)
                                 {
                                     return zxid;
@@ -166,11 +165,11 @@ namespace janus
                     usleep(20000);
                     // Coroutine::Sleep(50000);
                 }
-                Log_debug("%d committed server at index %d", nc, index);
+                Log_debug("%d committed server at index %d", nc, zxid.second);
                 if (!retry)
                 {
                     Log_debug("failed to reach agreement");
-                    return 0;
+                    return std::make_pair(0, 0);
                 }
             }
             else
@@ -181,21 +180,18 @@ namespace janus
             }
         }
         Log_debug("Failed to reach agreement end");
-        return 0;
+        return std::make_pair(0, 0);
     }
 
-    // Akshat: Change this to accomodate for zxid
     int SaucrTestConfig::NCommitted(pair<uint64_t, uint64_t> zxid)
     {
         int count = 0;
+        string searchString = to_string(zxid.first) + ":" + to_string(zxid.second);
         for (int i = 0; i < NSERVERS; i++)
         {
-            for (int j = 0; j < committed_cmds[i].size(); j++)
+            if (std::find(committed_zxids[i].begin(), committed_zxids[i].end(), searchString) != committed_zxids[i].end())
             {
-                if (committed_cmds[i][j] == zxid)
-                {
-                    count++;
-                }
+                count++;
             }
         }
         return count;

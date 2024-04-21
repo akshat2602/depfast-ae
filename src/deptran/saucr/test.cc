@@ -8,9 +8,8 @@ namespace janus
     int SaucrTest::Run(void)
     {
         Print("START WHOLISTIC TESTS");
-        // Akshat: Uncomment this once testconf.cc is complete
-        // config_->SetLearnerAction();
-        // uint64_t start_rpc = config_->RpcTotal();
+        config_->SetLearnerAction();
+        uint64_t start_rpc = config_->RpcTotal();
         if (true
             // testBasicAgree()
             // || testFastPathIndependentAgree() || testFastPathDependentAgree() || testSlowPathIndependentAgree() || testSlowPathDependentAgree() || testFailNoQuorum()
@@ -22,7 +21,7 @@ namespace janus
             return 1;
         }
         Print("ALL TESTS PASSED");
-        // Print("Total RPC count: %ld", config_->RpcTotal() - start_rpc);
+        Print("Total RPC count: %ld", config_->RpcTotal() - start_rpc);
         return 0;
     }
 

@@ -39,7 +39,8 @@ namespace janus
 
     private:
         static SaucrFrame **replicas;
-        static std::vector<pair<int, int>> committed_cmds[NSERVERS];
+        static std::vector<pair<int, pair<uint64_t, uint64_t>>> committed_cmds[NSERVERS];
+        static std::map<int, vector<string>> committed_zxids;
         static uint64_t rpc_count_last[NSERVERS];
 
         // disconnected_[svr] true if svr is disconnected by Disconnect()/Reconnect()
@@ -53,7 +54,7 @@ namespace janus
         SaucrTestConfig(SaucrFrame **replicas);
 
         // sets up learner action functions for the servers
-        // so that each committed command on each server is
+        // so that each committed command and its associated zxid on each server is
         // logged to this test's data structures.
         void SetLearnerAction(void);
 
@@ -64,6 +65,8 @@ namespace janus
 #endif
 
         // Calls Start() to specified server
+        // Returns true on success, false on error.
+        // Also returns the zxid of the command that was started.
         bool Start(int svr, int cmd, pair<uint64_t, uint64_t> *zxid);
 
         // Akshat: Check if wait is needed in further tests
@@ -80,7 +83,7 @@ namespace janus
         void GetState(int svr, bool *is_leader, uint64_t *epoch);
 
         // Returns committed values for server
-        vector<int> GetCommitted(int svr);
+        vector<pair<int, pair<uint64_t, uint64_t>>> GetCommitted(int svr);
 
         // Returns index of leader on success, < 0 on error.
         // If expected is specified, only returns success if the leader == expected
