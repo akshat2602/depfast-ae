@@ -22,13 +22,6 @@ namespace janus
     private:
         // Accept/Commit tests
         int testBasicAgree(void);
-        int testFastPathIndependentAgree(void);
-        int testFastPathDependentAgree(void);
-        int testSlowPathIndependentAgree(void);
-        int testSlowPathDependentAgree(void);
-        int testNonIdenticalAttrsAgree(void);
-        int testFailNoQuorum(void);
-        // Prepare tests
         int testConcurrentAgree(void);
         int testConcurrentUnreliableAgree(void);
     };

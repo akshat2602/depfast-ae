@@ -4,52 +4,65 @@
 #include "../coordinator.h"
 #include "../frame.h"
 
-namespace janus {
+namespace janus
+{
 
-class SaucrCommo;
-class SaucrServer;
-class SaucrCoordinator : public Coordinator {
- public:
-  SaucrServer* sch_ = nullptr;
- private:
-  enum Phase { INIT = 0, PREACCEPT = 1, ACCEPT = 2, COMMIT = 3 };
-  const int32_t n_phase_ = 4;
+  class SaucrCommo;
+  class SaucrServer;
+  class SaucrCoordinator : public Coordinator
+  {
+  public:
+    SaucrServer *sch_ = nullptr;
 
-	SaucrCommo *commo() {
-    verify(commo_ != nullptr);
-    return (SaucrCommo *) commo_;
-  }
-  
-  // bool in_submission_ = false; // debug;
-  // bool in_prepare_ = false; // debug
-  // bool in_accept = false; // debug
-  // bool in_append_entries = false; // debug
-  uint64_t minIndex = 0;
- public:
-  shared_ptr<Marshallable> cmd_{nullptr};
-  SaucrCoordinator(uint32_t coo_id,
-                    int32_t benchmark,
-                    ClientControlServiceImpl *ccsi,
-                    uint32_t thread_id);
-  ballot_t curr_ballot_ = 1; // TODO
-  uint32_t n_replica_ = 0;   // TODO
-  slotid_t slot_id_ = 0;
-  slotid_t *slot_hint_ = nullptr;
-  uint64_t cmt_idx_ = 0 ;
+  private:
+    enum Phase
+    {
+      INIT = 0,
+      ELECTION = 1,
+      PROPOSE = 2,
+      COMMIT = 3
+    };
+    const int32_t n_phase_ = 4;
 
-  uint32_t n_replica() {
-    verify(n_replica_ > 0);
-    return n_replica_;
-  }
+    SaucrCommo *commo()
+    {
+      verify(commo_ != nullptr);
+      return (SaucrCommo *)commo_;
+    }
 
-  void Submit(shared_ptr<Marshallable> &cmd,
-              string &dkey,
-              const std::function<void()> &commit_callback = []() {},
-              const std::function<void()> &exe_callback = []() {});
+    bool in_submission_ = false; // debug;
+    bool in_prepare_ = false; // debug
+    bool in_accept = false; // debug
+    bool in_append_entries = false; // debug
+    uint64_t minIndex = 0;
 
-  void Reset() override {}
-  void DoTxAsync(TxRequest &req) override {}
-  void Restart() override { verify(0); }
-};
+  public:
+    shared_ptr<Marshallable> cmd_{nullptr};
+    SaucrCoordinator(uint32_t coo_id,
+                     int32_t benchmark,
+                     ClientControlServiceImpl *ccsi,
+                     uint32_t thread_id);
+    ballot_t curr_ballot_ = 1; // TODO
+    uint32_t n_replica_ = 0;   // TODO
+    slotid_t slot_id_ = 0;
+    slotid_t *slot_hint_ = nullptr;
+    uint64_t cmt_idx_ = 0;
 
-} //namespace janus
+    uint32_t n_replica()
+    {
+      verify(n_replica_ > 0);
+      return n_replica_;
+    }
+
+    void Submit(
+        shared_ptr<Marshallable> &cmd,
+        string &dkey,
+        const std::function<void()> &commit_callback = []() {},
+        const std::function<void()> &exe_callback = []() {});
+
+    void Reset() override {}
+    void DoTxAsync(TxRequest &req) override {}
+    void Restart() override { verify(0); }
+  };
+
+} // namespace janus

@@ -4,15 +4,17 @@ abstract service Saucr {
     defer Propose(
         uint64_t l_id,
         uint64_t epoch,
-        uint64_t zxid,
+        uint64_t zxid_key,
+        uint64_t zxid_value,
         MarshallDeputy data |
-        bool_t ack_received
+        bool_t f_ok
     );
 
     defer Commit(
         uint64_t l_id,
         uint64_t epoch,
-        uint64_t zxid |
+        uint64_t zxid_key,
+        uint64_t zxid_value |
         bool_t f_ok
     );
 
@@ -26,6 +28,6 @@ abstract service Saucr {
 
 struct LogEntry {
     uint64_t epoch;
-    uint64_t zxid;
+    pair<uint64_t, uint64_t> zxid;
     MarshallDeputy data;
 };

@@ -12,7 +12,7 @@ namespace janus
 #ifdef SAUCR_TEST_CORO
     std::mutex SaucrFrame::saucr_test_mutex_;
     uint16_t SaucrFrame::n_replicas_ = 0;
-    EpaxosFrame *SaucrFrame::replicas_[NSERVERS];
+    SaucrFrame *SaucrFrame::replicas_[NSERVERS];
 #endif
 
     SaucrFrame::SaucrFrame(int mode) : Frame(mode) {}
