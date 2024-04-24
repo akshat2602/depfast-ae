@@ -3,10 +3,8 @@
 mode:
   cc: saucr # concurrency control
   ab: saucr # atomic broadcast
-  read_only: occ
   batch: false
   retry: 20
-  ongoing: 1 # per client
 
 # Sites: 1 server, 3 replicas
 site:

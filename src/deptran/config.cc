@@ -269,6 +269,12 @@ Config::Config(char           *ctrl_hostname,
 }
 
 void Config::Load() {
+  verify(!benchmark_ == !NumClients());
+  if (!sharding_) {
+    verify(!benchmark_);
+    Log_info("no benchmark or table schema given");
+    sharding_ = Frame(MODE_NONE).CreateSharding();
+  }
   for (auto &name: config_paths_) {
     if (boost::algorithm::ends_with(name, "yml")) {
       LoadYML(name);

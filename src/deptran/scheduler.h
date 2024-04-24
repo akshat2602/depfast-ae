@@ -25,6 +25,7 @@ class TxLogServer {
 
   function<void(Marshallable &)> app_next_{};
   function<shared_ptr<vector<MultiValue>>(Marshallable&)> key_deps_{};
+  // Akshat: Add in perf test function later on
 
   shared_ptr<mdb::TxnMgr> mdb_txn_mgr_{};
   int mode_;

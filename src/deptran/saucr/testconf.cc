@@ -523,7 +523,7 @@ namespace janus
         // Akshat: Check logic of this code, error shows up saying class rrr::PollMgr has no member slow
         std::lock_guard<std::recursive_mutex> lk(connection_m_);
         verify(!isDisconnected(svr));
-        // replicas[svr]->commo_->rpc_poll_->slow(msec * 1000);
+        replicas[svr]->commo_->rpc_poll_->slow(msec * 1000);
     }
 
 #endif

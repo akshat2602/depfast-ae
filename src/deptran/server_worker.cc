@@ -74,6 +74,10 @@ void ServerWorker::SetupBase() {
 }
 
 void ServerWorker::PopTable() {
+  if (sharding_->tb_infos_.size() == 0) {
+    verify(!Config::GetConfig()->benchmark());
+    return;
+  }
   // populate table
   int ret = 0;
   // get all tables
@@ -223,10 +227,21 @@ void ServerWorker::SetupCommo() {
       rep_commo_->loc_id_ = site_info_->locale_id;
     }
     rep_sched_->commo_ = rep_commo_;
-		rep_sched_->Setup();
 
     rep_commo_->rep_sched_ = rep_sched_;
   }
+  std::shared_ptr<OneTimeJob> sp_j1  = std::make_shared<OneTimeJob>([this]() { 
+    if (tx_sched_) {
+      tx_sched_->Setup();
+    }
+  });
+  svr_poll_mgr_->add(sp_j1);
+  std::shared_ptr<OneTimeJob> sp_j2  = std::make_shared<OneTimeJob>([this]() { 
+    if (rep_sched_) {
+      rep_sched_->Setup();
+    }
+  });
+  svr_poll_mgr_->add(sp_j2);
 }
 
 void ServerWorker::Pause() {
@@ -249,6 +264,12 @@ void ServerWorker::ShutDown() {
 //  thread_pool_g->release();
   svr_poll_mgr_->release();
 }
+
+void ServerWorker::Slow(uint32_t sleep_usec) {
+  svr_poll_mgr_->slow(sleep_usec);
+}
+
+
 int ServerWorker::DbChecksum() {
   auto cs = this->tx_sched_->mdb_txn_mgr_->Checksum();
   Log_info("site_id: %d shard_id: %d checksum: %x", (int)this->site_info_->id,
