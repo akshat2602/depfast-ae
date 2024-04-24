@@ -15,8 +15,6 @@ namespace janus
 
     void SaucrServiceImpl::HandlePropose(const uint64_t &l_id,
                                          const uint64_t &epoch,
-                                         const uint64_t &zxid_key,
-                                         const uint64_t &zxid_value,
                                          const MarshallDeputy &data,
                                          bool_t *f_ok,
                                          rrr::DeferredReply *defer)
@@ -28,8 +26,6 @@ namespace janus
 
     void SaucrServiceImpl::HandleCommit(const uint64_t &l_id,
                                         const uint64_t &epoch,
-                                        const uint64_t &zxid_key,
-                                        const uint64_t &zxid_value,
                                         bool_t *f_ok,
                                         rrr::DeferredReply *defer)
     {

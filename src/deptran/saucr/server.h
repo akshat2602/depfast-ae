@@ -41,69 +41,10 @@ namespace janus
         int slow = 0;
 
     private:
-        //     void HandleRequest(shared_ptr<Marshallable> &cmd,
-        //                        string &dkey,
-        //                        const function<void()> &cb);
-        //     bool StartPreAccept(shared_ptr<Marshallable> &cmd,
-        //                         string &dkey,
-        //                         ballot_t &ballot,
-        //                         uint64_t &replica_id,
-        //                         uint64_t &instance_no,
-        //                         int64_t leader_prev_dep_instance_no,
-        //                         bool recovery);
-        //     bool StartAccept(shared_ptr<Marshallable> &cmd,
-        //                      string &dkey,
-        //                      ballot_t &ballot,
-        //                      uint64_t &seq,
-        //                      map<uint64_t, uint64_t> &deps,
-        //                      uint64_t &replica_id,
-        //                      uint64_t &instance_no);
-        //     bool StartCommit(shared_ptr<Marshallable> &cmd,
-        //                      string &dkey,
-        //                      uint64_t &seq,
-        //                      map<uint64_t, uint64_t> &deps,
-        //                      uint64_t &replica_id,
-        //                      uint64_t &instance_no);
-        //     bool StartTryPreAccept(shared_ptr<Marshallable> &cmd,
-        //                            string &dkey,
-        //                            ballot_t &ballot,
-        //                            uint64_t &seq,
-        //                            map<uint64_t, uint64_t> &deps,
-        //                            uint64_t &replica_id,
-        //                            uint64_t &instance_no,
-        //                            int64_t leader_prev_dep_instance_no,
-        //                            unordered_set<siteid_t> &preaccepted_sites);
-        //     bool StartPrepare(uint64_t &replica_id, uint64_t &instance_no);
-        //     void PrepareTillCommitted(uint64_t &replica_id, uint64_t &instance_no);
-        //     void StartExecution(uint64_t &replica_id, uint64_t &instance_no);
-
         //     /* Helpers */
 
         //     shared_ptr<EpaxosCommand> GetCommand(uint64_t replica_id, uint64_t instance_no);
-        //     template <class ClassT>
-        //     void UpdateHighestSeenBallot(vector<ClassT> &replies, uint64_t &replica_id, uint64_t &instance_no);
-        //     void GetLatestAttributes(string &dkey, uint64_t &leader_replica_id, int64_t &leader_prev_dep_instance_no, uint64_t *seq, map<uint64_t, uint64_t> *deps);
-        //     void UpdateAttributes(string &dkey, uint64_t &replica_id, uint64_t &instance_no, uint64_t &seq);
-        //     void MergeAttributes(vector<EpaxosPreAcceptReply> &replies, uint64_t *seq, map<uint64_t, uint64_t> *deps);
-        //     vector<shared_ptr<EpaxosCommand>> GetDependencies(shared_ptr<EpaxosCommand> &ecmd);
-        //     void Execute(shared_ptr<EpaxosCommand> &ecmd);
-        //     void UpdateCommittedTill(uint64_t &replica_id, uint64_t &instance_no);
-        //     bool AreAllDependenciesCommitted(vector<EpaxosPreAcceptReply> &replies, map<uint64_t, uint64_t> &merged_deps);
-        //     unordered_set<uint64_t> GetReplicasWithAllDependenciesCommitted(map<uint64_t, uint64_t> &merged_deps);
-        //     bool IsInitialBallot(ballot_t &ballot);
-        //     int CompareBallots(ballot_t &b1, ballot_t &b2);
-        //     ballot_t GetInitialBallot();
-        //     ballot_t GetNextBallot(ballot_t &ballot);
-
-        //     void FindTryPreAcceptConflict(shared_ptr<Marshallable> &cmd,
-        //                                   string &dkey,
-        //                                   uint64_t &seq,
-        //                                   map<uint64_t, uint64_t> &deps,
-        //                                   uint64_t &replica_id,
-        //                                   uint64_t &instance_no,
-        //                                   EpaxosTryPreAcceptStatus *conflict_state,
-        //                                   uint64_t *conflict_replica_id,
-        //                                   uint64_t *conflict_instance_no);
+        //     void Execute(shared_ptr<EpaxosCommand> &ecmd); 
 
         //     /* RPC handlers */
 

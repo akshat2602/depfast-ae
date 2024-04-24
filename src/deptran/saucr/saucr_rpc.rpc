@@ -4,17 +4,13 @@ abstract service Saucr {
     defer Propose(
         uint64_t l_id,
         uint64_t epoch,
-        uint64_t zxid_key,
-        uint64_t zxid_value,
         MarshallDeputy data |
         bool_t f_ok
     );
 
     defer Commit(
         uint64_t l_id,
-        uint64_t epoch,
-        uint64_t zxid_key,
-        uint64_t zxid_value |
+        uint64_t epoch |
         bool_t f_ok
     );
 

@@ -16,22 +16,18 @@ namespace janus
         SaucrServer *svr_;
         SaucrServiceImpl(TxLogServer *sched);
 
-        RpcHandler(Propose, 6,
+        RpcHandler(Propose, 4,
                    const uint64_t &, l_id,
                    const uint64_t &, epoch,
-                   const uint64_t &, zxid_key,
-                   const uint64_t &, zxid_value,
                    const MarshallDeputy &, data,
                    bool_t *, f_ok)
         {
             *f_ok = false;
         };
 
-        RpcHandler(Commit, 5,
+        RpcHandler(Commit, 3,
                    const uint64_t &, l_id,
                    const uint64_t &, epoch,
-                   const uint64_t &, zxid_key,
-                   const uint64_t &, zxid_value,
                    bool_t *, f_ok)
         {
             *f_ok = false;
