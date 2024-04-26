@@ -20,10 +20,17 @@ namespace janus
         int Run(void);
 
     private:
-        // Accept/Commit tests
+        // Election tests
+        int testInitialElection(void);
+        int testReElection(void);
+        // Agreement tests
         int testBasicAgree(void);
-        int testConcurrentAgree(void);
-        int testConcurrentUnreliableAgree(void);
+        int testFailAgree(void);
+        int testFailNoAgree(void);
+        int testRejoin(void);
+        int testConcurrentStarts(void);
+        int testBackup(void);
+        int testCount(void);
     };
 
 #endif

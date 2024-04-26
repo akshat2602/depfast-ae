@@ -148,7 +148,6 @@ namespace janus
                     {
                         for (int i = 0; i < NSERVERS; i++)
                         {
-                            // Akshat: Check if this is working correctly
                             if (SaucrTestConfig::committed_cmds[i].size() > zxid.second)
                             {
                                 Log_debug("found commit log");
@@ -520,7 +519,6 @@ namespace janus
 
     void SaucrTestConfig::slow(int svr, uint32_t msec)
     {
-        // Akshat: Check logic of this code, error shows up saying class rrr::PollMgr has no member slow
         std::lock_guard<std::recursive_mutex> lk(connection_m_);
         verify(!isDisconnected(svr));
         replicas[svr]->commo_->rpc_poll_->slow(msec * 1000);
