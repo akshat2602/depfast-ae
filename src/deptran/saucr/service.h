@@ -16,6 +16,18 @@ namespace janus
         SaucrServer *svr_;
         SaucrServiceImpl(TxLogServer *sched);
 
+        RpcHandler(RequestVote, 6,
+                   const uint64_t &, c_id,
+                   const uint64_t &, c_epoch,
+                   const uint64_t &, last_seen_epoch,
+                   const uint64_t &, last_seen_cmd_count,
+                   bool_t *, vote_granted,
+                   bool_t *, f_ok)
+        {
+            *f_ok = false;
+            *vote_granted = false;
+        }
+
         RpcHandler(Propose, 4,
                    const uint64_t &, l_id,
                    const uint64_t &, epoch,

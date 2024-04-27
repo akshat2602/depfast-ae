@@ -10,7 +10,7 @@ namespace janus
         Print("START WHOLISTIC TESTS");
         config_->SetLearnerAction();
         uint64_t start_rpc = config_->RpcTotal();
-        if (testInitialElection()
+        if (testInitialElection() || testReElection()
             // || testFastPathIndependentAgree() || testFastPathDependentAgree() || testSlowPathIndependentAgree() || testSlowPathDependentAgree() || testFailNoQuorum()
             // || testNonIdenticalAttrsAgree()
             // || testPrepareCommittedCommandAgree() || testPrepareAcceptedCommandAgree() || testPreparePreAcceptedCommandAgree() || testPrepareNoopCommandAgree() || testConcurrentAgree() || testConcurrentUnreliableAgree())
@@ -105,6 +105,46 @@ namespace janus
         AssertOneLeader(config_->OneLeader(leader));
         Passed2();
     }
+
+    int SaucrTest::testReElection(void)
+    {
+        Init2(2, "Re-election after network failure");
+        // find current leader
+        int leader = config_->OneLeader();
+        AssertOneLeader(leader);
+        // disconnect leader - make sure a new one is elected
+        Log_debug("disconnecting old leader");
+        config_->Disconnect(leader);
+        int oldLeader = leader;
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        leader = config_->OneLeader();
+        AssertOneLeader(leader);
+        AssertReElection(leader, oldLeader);
+        // reconnect old leader - should not disturb new leader
+        config_->Reconnect(oldLeader);
+        Log_debug("reconnecting old leader");
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        AssertOneLeader(config_->OneLeader(leader));
+        // no quorum -> no leader
+        Log_debug("disconnecting more servers");
+        config_->Disconnect((leader + 1) % NSERVERS);
+        config_->Disconnect((leader + 2) % NSERVERS);
+        config_->Disconnect(leader);
+        Assert(config_->NoLeader());
+        // quorum restored
+        Log_debug("reconnecting a server to enable majority");
+        config_->Reconnect((leader + 2) % NSERVERS);
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        AssertOneLeader(config_->OneLeader());
+        // rejoin all servers
+        Log_debug("rejoining all servers");
+        config_->Reconnect((leader + 1) % NSERVERS);
+        config_->Reconnect(leader);
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        AssertOneLeader(config_->OneLeader());
+        Passed2();
+    }
+
 #endif
 
 } // namespace janus

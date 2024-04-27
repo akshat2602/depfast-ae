@@ -8,23 +8,35 @@
 
 namespace janus
 {
-    // Akshat: change SaucrRequest as per your requirements
-    class SaucrRequest
-    {
-    public:
-        shared_ptr<Marshallable> cmd;
-        string dkey;
 
-        SaucrRequest(shared_ptr<Marshallable> &cmd, string &dkey)
-        {
-            this->cmd = cmd;
-            this->dkey = dkey;
-        }
+    enum ZABState
+    {
+        FOLLOWER = 0,
+        CANDIDATE = 1,
+        LEADER = 2
     };
 
     class SaucrServer : public TxLogServer
     {
     private:
+        vector<LogEntry> log;
+        uint64_t state = ZABState::FOLLOWER;
+        uint64_t current_epoch = 0;
+        bool_t heartbeat_received = false;
+        uint64_t voted_for;
+        pair<uint64_t, uint64_t> last_seen_zxid = {0, 0};
+
+        uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL;
+        uint64_t generate_timeout()
+        {
+            return (700000 + (std::rand() % (1300000 - 700000 + 1)));
+        }
+
+        void convertToCandidate();
+        void convertToLeader();
+        bool_t requestVotes();
+        bool_t sendHeartbeats();
+
 #ifdef SAUCR_TEST_CORO
         int commit_timeout = 300000;
         int rpc_timeout = 2000000;
@@ -35,67 +47,22 @@ namespace janus
         // metrics
     public:
         map<uint64_t, Timer> start_times;
-        vector<double> commit_times;
-        vector<double> exec_times;
-        int fast = 0;
-        int slow = 0;
 
     private:
-        //     /* Helpers */
-
-        //     shared_ptr<EpaxosCommand> GetCommand(uint64_t replica_id, uint64_t instance_no);
-        //     void Execute(shared_ptr<EpaxosCommand> &ecmd); 
-
-        //     /* RPC handlers */
-
-        // public:
-        //     void Start(shared_ptr<Marshallable> &cmd,
-        //                string dkey,
-        //                const function<void()> &cb);
-        //     EpaxosPreAcceptReply OnPreAcceptRequest(shared_ptr<Marshallable> &cmd,
-        //                                             string dkey,
-        //                                             ballot_t ballot,
-        //                                             uint64_t seq,
-        //                                             map<uint64_t, uint64_t> deps,
-        //                                             uint64_t replica_id,
-        //                                             uint64_t instance_no);
-        //     EpaxosAcceptReply OnAcceptRequest(shared_ptr<Marshallable> &cmd,
-        //                                       string dkey,
-        //                                       ballot_t ballot,
-        //                                       uint64_t seq,
-        //                                       map<uint64_t, uint64_t> deps,
-        //                                       uint64_t replica_id,
-        //                                       uint64_t instance_no);
-        //     void OnCommitRequest(shared_ptr<Marshallable> &cmd,
-        //                          string dkey,
-        //                          uint64_t seq,
-        //                          map<uint64_t, uint64_t> deps,
-        //                          uint64_t replica_id,
-        //                          uint64_t instance_no);
-        //     EpaxosTryPreAcceptReply OnTryPreAcceptRequest(shared_ptr<Marshallable> &cmd,
-        //                                                   string dkey,
-        //                                                   ballot_t ballot,
-        //                                                   uint64_t seq,
-        //                                                   map<uint64_t, uint64_t> deps,
-        //                                                   uint64_t replica_id,
-        //                                                   uint64_t instance_no);
-        //     EpaxosPrepareReply OnPrepareRequest(ballot_t ballot,
-        //                                         uint64_t replica_id,
-        //                                         uint64_t instance_no);
-
         /* Client request handlers */
 
     public:
 #ifdef SAUCR_TEST_CORO
         bool Start(shared_ptr<Marshallable> &cmd, pair<uint64_t, uint64_t> *zxid);
-        void GetState(bool *is_leader, uint64_t *epoch);
 #endif
+        void GetState(bool *is_leader, uint64_t *epoch);
 
         /* Do not modify this class below here */
 
     public:
         SaucrServer(Frame *frame);
         ~SaucrServer();
+        void RunSaucrServer();
 
     private:
         bool disconnected_ = false;

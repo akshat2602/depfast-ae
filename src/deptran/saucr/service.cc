@@ -13,6 +13,21 @@ namespace janus
         srand(curr_time.tv_nsec);
     }
 
+    void SaucrServiceImpl::HandleRequestVote(const uint64_t &c_id,
+                                             const uint64_t &c_epoch,
+                                             const uint64_t &last_seen_epoch,
+                                             const uint64_t &last_seen_cmd_count,
+                                             bool_t *vote_granted,
+                                             bool_t *f_ok,
+                                             rrr::DeferredReply *defer)
+    {
+        Log_info("HandleRequestVote: c_id: %lu, c_epoch: %lu, last_seen_epoch: %lu, last_seen_cmd_count: %lu", c_id, c_epoch, last_seen_epoch, last_seen_cmd_count);
+        *f_ok = false;
+        *vote_granted = false;
+        // svr_->HandleRequestVote(c_id, c_epoch, last_seen_zxid, vote_granted, f_ok);
+        defer->reply();
+    }
+
     void SaucrServiceImpl::HandlePropose(const uint64_t &l_id,
                                          const uint64_t &epoch,
                                          const MarshallDeputy &data,
