@@ -37,9 +37,11 @@ namespace janus
             *f_ok = false;
         };
 
-        RpcHandler(Commit, 3,
+        RpcHandler(Commit, 5,
                    const uint64_t &, l_id,
                    const uint64_t &, epoch,
+                   const uint64_t &, zxid_commit_epoch,
+                   const uint64_t &, zxid_commit_count,
                    bool_t *, f_ok)
         {
             *f_ok = false;

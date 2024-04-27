@@ -23,7 +23,7 @@ namespace janus
         uint64_t state = ZABState::FOLLOWER;
         uint64_t current_epoch = 0;
         bool_t heartbeat_received = false;
-        uint64_t voted_for;
+        uint64_t voted_for = -1;
         pair<uint64_t, uint64_t> last_seen_zxid = {0, 0};
 
         uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL;
@@ -47,11 +47,21 @@ namespace janus
         // metrics
     public:
         map<uint64_t, Timer> start_times;
-
-    private:
         /* Client request handlers */
 
-    public:
+        void HandleRequestVote(const uint64_t &c_id,
+                               const uint64_t &c_epoch,
+                               const uint64_t &last_seen_epoch,
+                               const uint64_t &last_seen_cmd_count,
+                               bool_t *vote_granted,
+                               bool_t *f_ok,
+                               rrr::DeferredReply *defer);
+
+        void HandleHeartbeat(const uint64_t &l_id,
+                             const uint64_t &l_epoch,
+                             bool_t *f_ok,
+                             rrr::DeferredReply *defer);
+
 #ifdef SAUCR_TEST_CORO
         bool Start(shared_ptr<Marshallable> &cmd, pair<uint64_t, uint64_t> *zxid);
 #endif

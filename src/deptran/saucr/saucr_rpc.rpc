@@ -10,7 +10,9 @@ abstract service Saucr {
 
     defer Commit(
         uint64_t l_id,
-        uint64_t epoch |
+        uint64_t epoch,
+        uint64_t zxid_commit_epoch,
+        uint64_t zxid_commit_count |
         bool_t f_ok
     );
 

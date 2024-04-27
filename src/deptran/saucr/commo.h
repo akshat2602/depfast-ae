@@ -68,6 +68,11 @@ namespace janus
                                                      uint64_t c_epoch,
                                                      pair<uint64_t, uint64_t> last_seen_zxid);
 
+        shared_ptr<SaucrQuorumEvent> SendHeartbeat(parid_t par_id,
+                                                   siteid_t site_id,
+                                                   uint64_t l_id,
+                                                   uint64_t l_epoch);
+
         /* Do not modify this class below here */
 
     public:

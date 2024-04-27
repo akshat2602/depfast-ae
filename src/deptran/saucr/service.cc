@@ -21,11 +21,7 @@ namespace janus
                                              bool_t *f_ok,
                                              rrr::DeferredReply *defer)
     {
-        Log_info("HandleRequestVote: c_id: %lu, c_epoch: %lu, last_seen_epoch: %lu, last_seen_cmd_count: %lu", c_id, c_epoch, last_seen_epoch, last_seen_cmd_count);
-        *f_ok = false;
-        *vote_granted = false;
-        // svr_->HandleRequestVote(c_id, c_epoch, last_seen_zxid, vote_granted, f_ok);
-        defer->reply();
+        svr_->HandleRequestVote(c_id, c_epoch, last_seen_epoch, last_seen_cmd_count, vote_granted, f_ok, defer);
     }
 
     void SaucrServiceImpl::HandlePropose(const uint64_t &l_id,
@@ -41,6 +37,8 @@ namespace janus
 
     void SaucrServiceImpl::HandleCommit(const uint64_t &l_id,
                                         const uint64_t &epoch,
+                                        const uint64_t &zxid_commit_epoch,
+                                        const uint64_t &zxid_commit_count,
                                         bool_t *f_ok,
                                         rrr::DeferredReply *defer)
     {
@@ -54,9 +52,7 @@ namespace janus
                                            bool_t *f_ok,
                                            rrr::DeferredReply *defer)
     {
-        *f_ok = false;
-        // svr_->HandleHeartbeat(l_id, epoch, f_ok);
-        defer->reply();
+        svr_->HandleHeartbeat(l_id, epoch, f_ok, defer);
     }
 
 } // namespace janus;
