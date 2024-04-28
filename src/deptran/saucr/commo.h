@@ -73,6 +73,19 @@ namespace janus
                                                    uint64_t l_id,
                                                    uint64_t l_epoch);
 
+        shared_ptr<SaucrQuorumEvent> SendProposal(parid_t par_id,
+                                                  siteid_t site_id,
+                                                  uint64_t l_id,
+                                                  uint64_t l_epoch,
+                                                  LogEntry &entry);
+
+        shared_ptr<SaucrQuorumEvent> SendCommit(parid_t par_id,
+                                                siteid_t site_id,
+                                                uint64_t l_id,
+                                                uint64_t l_epoch,
+                                                uint64_t zxid_commit_epoch,
+                                                uint64_t zxid_commit_count);
+
         /* Do not modify this class below here */
 
     public:

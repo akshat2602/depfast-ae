@@ -30,7 +30,6 @@ namespace janus
         return true;
     }
 
-#endif
     void SaucrServer::GetState(bool *is_leader, uint64_t *epoch)
     {
         mtx_.lock();
@@ -39,6 +38,7 @@ namespace janus
         mtx_.unlock();
         return;
     }
+#endif
 
     void SaucrServer::RunSaucrServer()
     {
@@ -82,13 +82,13 @@ namespace janus
                 mtx_.unlock();
                 break;
             case ZABState::LEADER:
+                Coroutine::Sleep(HEARTBEAT_INTERVAL);
                 // If the server is a leader, it should send heartbeats to other servers
                 // If the server does not receive a majority of acknowledgements, it should transition back to a follower
                 // If the server receives a majority of acknowledgements, it should proceed forward
-                Coroutine::Sleep(HEARTBEAT_INTERVAL);
-                // Send heartbeats to other servers
                 if(!sendHeartbeats())
                 {
+                    Log_info("Stepping down as leader");
                     mtx_.lock();
                     state = ZABState::FOLLOWER;
                     mtx_.unlock();
@@ -102,6 +102,22 @@ namespace janus
         } });
     }
 
+    /* HELPER FUNCTIONS */
+
+    pair<uint64_t, uint64_t> SaucrServer::getLastSeenZxid()
+    {
+        if (commit_log.size() > 0)
+        {
+            auto entry = commit_log.back();
+            auto zab_cmd = make_shared<ZABMarshallable>();
+            shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
+            zab_cmd = dynamic_pointer_cast<ZABMarshallable>(cmd);
+            Log_info("Last seen zxid: %lu, %lu at server: %lu with epoch %lu", zab_cmd->zxid.first, zab_cmd->zxid.second, loc_id_, current_epoch);
+            return zab_cmd->zxid;
+        }
+        return {0, 0};
+    }
+
     bool_t SaucrServer::sendHeartbeats()
     {
         auto ev = commo()->SendHeartbeat(partition_id_, loc_id_, loc_id_, current_epoch);
@@ -111,20 +127,38 @@ namespace janus
 
     bool_t SaucrServer::requestVotes()
     {
-        auto ev = commo()->SendRequestVote(partition_id_, loc_id_, loc_id_, current_epoch, last_seen_zxid);
+        auto ev = commo()->SendRequestVote(partition_id_, loc_id_, loc_id_, current_epoch, getLastSeenZxid());
+        ev->Wait(20000);
+        return ev->Yes();
+    }
+
+    bool_t SaucrServer::sendProposal(LogEntry &entry)
+    {
+        // Akshat: Integrate proposal replies to consider syncing with followers
+        auto ev = commo()->SendProposal(partition_id_, loc_id_, loc_id_, current_epoch, entry);
+        ev->Wait(20000);
+        return ev->Yes();
+    }
+
+    bool_t SaucrServer::commitProposal(LogEntry &entry)
+    {
+        auto zab_cmd = make_shared<ZABMarshallable>();
+        shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
+        zab_cmd = dynamic_pointer_cast<ZABMarshallable>(cmd);
+        auto ev = commo()->SendCommit(partition_id_, loc_id_, loc_id_, current_epoch, zab_cmd->zxid.first, zab_cmd->zxid.second);
         ev->Wait(20000);
         return ev->Yes();
     }
 
     void SaucrServer::convertToCandidate()
     {
-        Log_info("Converted to Candidate at epoch: %lu, by server: %lu", current_epoch, loc_id_);
         mtx_.lock();
         state = ZABState::CANDIDATE;
         current_epoch++;
         heartbeat_received = false;
         voted_for = loc_id_;
         mtx_.unlock();
+        Log_info("Converted to Candidate at epoch: %lu, by server: %lu", current_epoch, loc_id_);
     }
 
     void SaucrServer::convertToLeader()
@@ -134,7 +168,29 @@ namespace janus
         heartbeat_received = true;
         state = ZABState::LEADER;
         mtx_.unlock();
-        // Akshat: Initiate a commit using a noop command so that the leader can start sending heartbeats
+        LogEntry entry;
+        int cmd = 0;
+        pair<uint64_t, uint64_t> temp_zxid = make_pair(current_epoch, 0);
+        auto zab_cmd = make_shared<ZABMarshallable>();
+        zab_cmd->zxid = temp_zxid;
+        MarshallDeputy data(zab_cmd);
+        entry.data = data;
+        if (sendProposal(entry))
+        {
+            if (commitProposal(entry))
+            {
+                Log_info("Committed Noop Command");
+            }
+            else
+            {
+                Log_info("Failed to commit Noop Command");
+                // Step down as leader
+                mtx_.lock();
+                state = ZABState::FOLLOWER;
+                voted_for = -1;
+                mtx_.unlock();
+            }
+        }
     }
 
     /* CLIENT HANDLERS */
@@ -179,8 +235,21 @@ namespace janus
             return;
         }
 
+        auto last_seen_zxid = getLastSeenZxid();
+        // If the server has not seend a command with a higher command count, vote for the candidate
+        if (last_seen_epoch == last_seen_zxid.first && last_seen_cmd_count >= last_seen_zxid.second)
+        {
+            voted_for = c_id;
+            current_epoch = c_epoch;
+            current_epoch = c_epoch;
+            *vote_granted = true;
+            mtx_.unlock();
+            Log_info("Voted for: %lu, because last_seen_cmd_count is greater", c_id);
+            defer->reply();
+            return;
+        }
         // If the server has not seen a command with a higher epoch, vote for the candidate
-        if (last_seen_epoch > last_seen_zxid.first)
+        else if (last_seen_epoch > last_seen_zxid.first)
         {
             voted_for = c_id;
             current_epoch = c_epoch;
@@ -188,18 +257,6 @@ namespace janus
             *vote_granted = true;
             mtx_.unlock();
             Log_info("Voted for: %lu, because last_seen_epoch is greater", c_id);
-            defer->reply();
-            return;
-        }
-        // If the server has not seend a command with a higher command count, vote for the candidate
-        else if (last_seen_epoch == last_seen_zxid.first && last_seen_cmd_count >= last_seen_zxid.second)
-        {
-            voted_for = c_id;
-            heartbeat_received = true;
-            current_epoch = c_epoch;
-            *vote_granted = true;
-            mtx_.unlock();
-            Log_info("Voted for: %lu, because last_seen_cmd_count is greater", c_id);
             defer->reply();
             return;
         }
@@ -228,9 +285,85 @@ namespace janus
         {
             current_epoch = l_epoch;
             state = ZABState::FOLLOWER;
-            voted_for = -1;
+            // voted_for = -1;
+            voted_for = l_id;
         }
         heartbeat_received = true;
+        mtx_.unlock();
+        defer->reply();
+        return;
+    }
+
+    void SaucrServer::HandlePropose(const uint64_t &l_id,
+                                    const uint64_t &l_epoch,
+                                    const LogEntry &entry,
+                                    bool_t *f_ok,
+                                    rrr::DeferredReply *defer)
+    {
+        *f_ok = true;
+        Log_info("Received Proposal from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
+        mtx_.lock();
+        if (l_epoch < current_epoch)
+        {
+            mtx_.unlock();
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
+        if (l_epoch > current_epoch)
+        {
+            current_epoch = l_epoch;
+            state = ZABState::FOLLOWER;
+            // Akshat: Reason about whether to set voted_for to -1 here
+            voted_for = l_id;
+        }
+        // Check if the proposal is already in the log, if it is then reply false
+        auto zab_cmd = make_shared<ZABMarshallable>();
+        shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
+        zab_cmd = dynamic_pointer_cast<ZABMarshallable>(cmd);
+        if (zxid_log_index_map.find(zab_cmd->zxid) != zxid_log_index_map.end())
+        {
+            mtx_.unlock();
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
+        Log_info("Accepted Proposal from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
+        log.push_back(entry);
+        zxid_log_index_map[zab_cmd->zxid] = log.size() - 1;
+        mtx_.unlock();
+        defer->reply();
+        return;
+    }
+
+    void SaucrServer::HandleCommit(const uint64_t &l_id,
+                                   const uint64_t &l_epoch,
+                                   const uint64_t &zxid_commit_epoch,
+                                   const uint64_t &zxid_commit_count,
+                                   bool_t *f_ok,
+                                   rrr::DeferredReply *defer)
+    {
+        *f_ok = true;
+        Log_info("Received Commit from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
+        mtx_.lock();
+        if (l_epoch < current_epoch)
+        {
+            mtx_.unlock();
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
+        if (l_epoch > current_epoch)
+        {
+            current_epoch = l_epoch;
+            state = ZABState::FOLLOWER;
+            voted_for = l_id;
+        }
+        Log_info("Accepted Commit from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
+        // Akshat: Reason about this
+        auto idx = zxid_log_index_map[{zxid_commit_epoch, zxid_commit_count}];
+        auto entry = log[idx];
+        commit_log.push_back(entry);
         mtx_.unlock();
         defer->reply();
         return;

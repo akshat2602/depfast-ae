@@ -93,4 +93,86 @@ namespace janus
         return ev;
     }
 
+    shared_ptr<SaucrQuorumEvent> SaucrCommo::SendProposal(parid_t par_id,
+                                                          siteid_t site_id,
+                                                          uint64_t l_id,
+                                                          uint64_t l_epoch,
+                                                          LogEntry &entry)
+    {
+        Log_info("Proposal sending from %lu", site_id);
+        auto ev = Reactor::CreateSpEvent<SaucrQuorumEvent>();
+        auto proxies = rpc_par_proxies_[par_id];
+        for (auto &p : proxies)
+        {
+            if (p.first == site_id)
+            {
+                continue;
+            }
+            SaucrProxy *proxy = (SaucrProxy *)p.second;
+            FutureAttr fuattr;
+            fuattr.callback = [ev](Future *fu)
+            {
+                bool_t f_ok;
+                fu->get_reply() >> f_ok;
+                if (f_ok)
+                {
+                    ev->VoteYes();
+                }
+                else
+                {
+                    ev->VoteNo();
+                }
+            };
+            Call_Async(proxy,
+                       Propose,
+                       l_id,
+                       l_epoch,
+                       entry,
+                       fuattr);
+        }
+        return ev;
+    }
+
+    shared_ptr<SaucrQuorumEvent> SaucrCommo::SendCommit(parid_t par_id,
+                                                        siteid_t site_id,
+                                                        uint64_t l_id,
+                                                        uint64_t l_epoch,
+                                                        uint64_t zxid_commit_epoch,
+                                                        uint64_t zxid_commit_count)
+    {
+        Log_info("Commit sending from %lu", site_id);
+        auto ev = Reactor::CreateSpEvent<SaucrQuorumEvent>();
+        auto proxies = rpc_par_proxies_[par_id];
+        for (auto &p : proxies)
+        {
+            if (p.first == site_id)
+            {
+                continue;
+            }
+            SaucrProxy *proxy = (SaucrProxy *)p.second;
+            FutureAttr fuattr;
+            fuattr.callback = [ev](Future *fu)
+            {
+                bool_t f_ok;
+                fu->get_reply() >> f_ok;
+                if (f_ok)
+                {
+                    ev->VoteYes();
+                }
+                else
+                {
+                    ev->VoteNo();
+                }
+            };
+            Call_Async(proxy,
+                       Commit,
+                       l_id,
+                       l_epoch,
+                       zxid_commit_epoch,
+                       zxid_commit_count,
+                       fuattr);
+        }
+        return ev;
+    }
+
 } // namespace janus

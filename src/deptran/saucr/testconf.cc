@@ -209,6 +209,7 @@ namespace janus
 
     int SaucrTestConfig::waitOneLeader(bool want_leader, int expected)
     {
+        Log_info("expecting leader %d", expected);
         uint64_t mostRecentEpoch = 0, epoch;
         int leader = -1, i, retry;
         bool isleader;

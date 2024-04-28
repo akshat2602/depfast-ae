@@ -30,8 +30,8 @@ namespace janus
 
         RpcHandler(Propose, 4,
                    const uint64_t &, l_id,
-                   const uint64_t &, epoch,
-                   const MarshallDeputy &, data,
+                   const uint64_t &, l_epoch,
+                   const LogEntry &, entry,
                    bool_t *, f_ok)
         {
             *f_ok = false;
@@ -39,7 +39,7 @@ namespace janus
 
         RpcHandler(Commit, 5,
                    const uint64_t &, l_id,
-                   const uint64_t &, epoch,
+                   const uint64_t &, l_epoch,
                    const uint64_t &, zxid_commit_epoch,
                    const uint64_t &, zxid_commit_count,
                    bool_t *, f_ok)
@@ -49,7 +49,7 @@ namespace janus
 
         RpcHandler(Heartbeat, 3,
                    const uint64_t &, l_id,
-                   const uint64_t &, epoch,
+                   const uint64_t &, l_epoch,
                    bool_t *, f_ok)
         {
             *f_ok = false;
