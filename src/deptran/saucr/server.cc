@@ -104,16 +104,36 @@ namespace janus
 
     /* HELPER FUNCTIONS */
 
+    vector<vector<LogEntry>> SaucrServer::createSyncLogs(shared_ptr<SaucrNewLeaderQuorumEvent> &ev)
+    {
+        vector<vector<LogEntry>> syncLogs;
+        auto votes = ev->GetVotes();
+        auto conflict_zxids = ev->GetConflictLastSeenZxid();
+        for (int i = 0; i < NSERVERS; i++)
+        {
+            vector<LogEntry> syncLog = {};
+            if (votes[i] == SAUCR_VOTE_NOT_GRANTED || votes[i] == SAUCR_VOTE_GRANTED)
+            {
+                syncLogs.push_back(syncLog);
+                continue;
+            }
+            auto p = conflict_zxids[i];
+            for (int i = zxid_log_index_map[p]; i < log.size(); i++)
+            {
+                syncLog.push_back(commit_log[i]);
+            }
+            syncLogs.push_back(syncLog);
+        }
+        return syncLogs;
+    }
+
     pair<uint64_t, uint64_t> SaucrServer::getLastSeenZxid()
     {
         if (commit_log.size() > 0)
         {
             auto entry = commit_log.back();
-            auto zab_cmd = make_shared<ZABMarshallable>();
-            shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
-            zab_cmd = dynamic_pointer_cast<ZABMarshallable>(cmd);
-            Log_info("Last seen zxid: %lu, %lu at server: %lu with epoch %lu", zab_cmd->zxid.first, zab_cmd->zxid.second, loc_id_, current_epoch);
-            return zab_cmd->zxid;
+            Log_info("Last seen zxid: %lu, %lu at server: %lu with epoch %lu", entry.epoch, entry.cmd_count, loc_id_, current_epoch);
+            return {entry.epoch, entry.cmd_count};
         }
         return {0, 0};
     }
@@ -127,14 +147,22 @@ namespace janus
 
     bool_t SaucrServer::requestVotes()
     {
-        auto ev = commo()->SendRequestVote(partition_id_, loc_id_, loc_id_, current_epoch, getLastSeenZxid());
+        auto last_seen_zxid = getLastSeenZxid();
+        auto ev = commo()->SendRequestVote(partition_id_, loc_id_, loc_id_, current_epoch, last_seen_zxid);
         ev->Wait(20000);
+        if (ev->n_voted_conflict_ > 0)
+        {
+            Log_info("Received conflict votes");
+            auto syncLog = createSyncLogs(ev);
+            commo()->SendSync(partition_id_, loc_id_, loc_id_, current_epoch, ev, syncLog);
+            ev->Wait(20000);
+            return ev->Yes();
+        }
         return ev->Yes();
     }
 
     bool_t SaucrServer::sendProposal(LogEntry &entry)
     {
-        // Akshat: Integrate proposal replies to consider syncing with followers
         auto ev = commo()->SendProposal(partition_id_, loc_id_, loc_id_, current_epoch, entry);
         ev->Wait(20000);
         return ev->Yes();
@@ -142,10 +170,9 @@ namespace janus
 
     bool_t SaucrServer::commitProposal(LogEntry &entry)
     {
-        auto zab_cmd = make_shared<ZABMarshallable>();
-        shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
-        zab_cmd = dynamic_pointer_cast<ZABMarshallable>(cmd);
-        auto ev = commo()->SendCommit(partition_id_, loc_id_, loc_id_, current_epoch, zab_cmd->zxid.first, zab_cmd->zxid.second);
+        commit_log.push_back(entry);
+        zxid_commit_log_index_map[{entry.epoch, entry.cmd_count}] = commit_log.size() - 1;
+        auto ev = commo()->SendCommit(partition_id_, loc_id_, loc_id_, current_epoch, entry.epoch, entry.cmd_count);
         ev->Wait(20000);
         return ev->Yes();
     }
@@ -170,11 +197,18 @@ namespace janus
         mtx_.unlock();
         LogEntry entry;
         int cmd = 0;
-        pair<uint64_t, uint64_t> temp_zxid = make_pair(current_epoch, 0);
-        auto zab_cmd = make_shared<ZABMarshallable>();
-        zab_cmd->zxid = temp_zxid;
-        MarshallDeputy data(zab_cmd);
+        auto cmdptr = std::make_shared<TpcCommitCommand>();
+        auto vpd_p = std::make_shared<VecPieceData>();
+        vpd_p->sp_vec_piece_data_ = std::make_shared<vector<shared_ptr<SimpleCommand>>>();
+        cmdptr->tx_id_ = cmd;
+        cmdptr->cmd_ = vpd_p;
+        auto cmdptr_m = dynamic_pointer_cast<Marshallable>(cmdptr);
+        MarshallDeputy data(cmdptr);
         entry.data = data;
+        entry.epoch = current_epoch;
+        entry.cmd_count = 0;
+        log.push_back(entry);
+        zxid_log_index_map[{current_epoch, 0}] = log.size() - 1;
         if (sendProposal(entry))
         {
             if (commitProposal(entry))
@@ -198,6 +232,8 @@ namespace janus
                                         const uint64_t &c_epoch,
                                         const uint64_t &last_seen_epoch,
                                         const uint64_t &last_seen_cmd_count,
+                                        uint64_t *conflict_epoch,
+                                        uint64_t *conflict_cmd_count,
                                         bool_t *vote_granted,
                                         bool_t *f_ok,
                                         rrr::DeferredReply *defer)
@@ -207,6 +243,9 @@ namespace janus
         Log_info("Received RequestVote from: %lu, with epoch: %lu, zxid: %lu, %lu, at: %lu", c_id, c_epoch, last_seen_epoch, last_seen_cmd_count, loc_id_);
         mtx_.lock();
 
+        auto last_seen_zxid = getLastSeenZxid();
+        *conflict_epoch = last_seen_zxid.first;
+        *conflict_cmd_count = last_seen_zxid.second;
         // If the current epoch is less than the epoch of the candidate, do not vote
         if (c_epoch < current_epoch)
         {
@@ -235,32 +274,84 @@ namespace janus
             return;
         }
 
-        auto last_seen_zxid = getLastSeenZxid();
-        // If the server has not seend a command with a higher command count, vote for the candidate
-        if (last_seen_epoch == last_seen_zxid.first && last_seen_cmd_count >= last_seen_zxid.second)
+        // If the server is in sync with the candidate, vote for the candidate
+        if (last_seen_epoch == last_seen_zxid.first && last_seen_cmd_count == last_seen_zxid.second)
         {
             voted_for = c_id;
             current_epoch = c_epoch;
-            current_epoch = c_epoch;
             *vote_granted = true;
+            mtx_.unlock();
+            Log_info("Voted for: %lu, because last_seen_epoch and last_seen_cmd_count are equal", c_id);
+            defer->reply();
+            return;
+        }
+
+        // If the server has not seend a command with a higher command count, don't vote, let the server catch up using sync
+        else if (last_seen_epoch == last_seen_zxid.first && last_seen_cmd_count > last_seen_zxid.second)
+        {
+            voted_for = c_id;
+            current_epoch = c_epoch;
+            heartbeat_received = true;
+            *vote_granted = false;
             mtx_.unlock();
             Log_info("Voted for: %lu, because last_seen_cmd_count is greater", c_id);
             defer->reply();
             return;
         }
-        // If the server has not seen a command with a higher epoch, vote for the candidate
+        // If the server has not seen a command with a higher epoch, don't vote, let the server catch up using sync
         else if (last_seen_epoch > last_seen_zxid.first)
         {
             voted_for = c_id;
             current_epoch = c_epoch;
             heartbeat_received = true;
-            *vote_granted = true;
+            *vote_granted = false;
             mtx_.unlock();
             Log_info("Voted for: %lu, because last_seen_epoch is greater", c_id);
             defer->reply();
             return;
         }
         Log_info("Did not vote for: %lu", c_id);
+        mtx_.unlock();
+        defer->reply();
+        return;
+    }
+
+    void SaucrServer::HandleSync(const uint64_t &l_id,
+                                 const uint64_t &l_epoch,
+                                 const vector<LogEntry> &logs,
+                                 bool_t *f_ok,
+                                 rrr::DeferredReply *defer)
+    {
+        *f_ok = true;
+        Log_info("Received Sync from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
+        mtx_.lock();
+        if (l_epoch < current_epoch)
+        {
+            mtx_.unlock();
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
+        if (l_epoch > current_epoch)
+        {
+            current_epoch = l_epoch;
+            state = ZABState::FOLLOWER;
+            voted_for = l_id;
+        }
+        // Akshat: Reason about this
+        for (auto entry : logs)
+        {
+            auto zxid = make_pair(entry.epoch, entry.cmd_count);
+            if (zxid_log_index_map.find(zxid) != zxid_log_index_map.end())
+            {
+                mtx_.unlock();
+                *f_ok = false;
+                defer->reply();
+                return;
+            }
+            commit_log.push_back(entry);
+            zxid_commit_log_index_map[zxid] = log.size() - 1;
+        }
         mtx_.unlock();
         defer->reply();
         return;
@@ -317,20 +408,10 @@ namespace janus
             // Akshat: Reason about whether to set voted_for to -1 here
             voted_for = l_id;
         }
-        // Check if the proposal is already in the log, if it is then reply false
-        auto zab_cmd = make_shared<ZABMarshallable>();
-        shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
-        zab_cmd = dynamic_pointer_cast<ZABMarshallable>(cmd);
-        if (zxid_log_index_map.find(zab_cmd->zxid) != zxid_log_index_map.end())
-        {
-            mtx_.unlock();
-            *f_ok = false;
-            defer->reply();
-            return;
-        }
+        auto zxid = make_pair(entry.epoch, entry.cmd_count);
         Log_info("Accepted Proposal from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
         log.push_back(entry);
-        zxid_log_index_map[zab_cmd->zxid] = log.size() - 1;
+        zxid_log_index_map[zxid] = log.size() - 1;
         mtx_.unlock();
         defer->reply();
         return;
@@ -364,6 +445,7 @@ namespace janus
         auto idx = zxid_log_index_map[{zxid_commit_epoch, zxid_commit_count}];
         auto entry = log[idx];
         commit_log.push_back(entry);
+        zxid_commit_log_index_map[{zxid_commit_epoch, zxid_commit_count}] = commit_log.size() - 1;
         mtx_.unlock();
         defer->reply();
         return;

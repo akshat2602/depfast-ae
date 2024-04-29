@@ -19,9 +19,11 @@ namespace janus
                                              const uint64_t &last_seen_cmd_count,
                                              bool_t *vote_granted,
                                              bool_t *f_ok,
+                                             uint64_t *conflict_epoch,
+                                             uint64_t *conflict_cmd_count,
                                              rrr::DeferredReply *defer)
     {
-        svr_->HandleRequestVote(c_id, c_epoch, last_seen_epoch, last_seen_cmd_count, vote_granted, f_ok, defer);
+        svr_->HandleRequestVote(c_id, c_epoch, last_seen_epoch, last_seen_cmd_count, conflict_epoch, conflict_cmd_count, vote_granted, f_ok, defer);
     }
 
     void SaucrServiceImpl::HandlePropose(const uint64_t &l_id,
@@ -49,6 +51,15 @@ namespace janus
                                            rrr::DeferredReply *defer)
     {
         svr_->HandleHeartbeat(l_id, l_epoch, f_ok, defer);
+    }
+
+    void SaucrServiceImpl::HandleSyncLogs(const uint64_t &l_id,
+                                          const uint64_t &l_epoch,
+                                          const vector<LogEntry> &logs,
+                                          bool_t *f_ok,
+                                          rrr::DeferredReply *defer)
+    {
+        svr_->HandleSync(l_id, l_epoch, logs, f_ok, defer);
     }
 
 } // namespace janus;

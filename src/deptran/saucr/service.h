@@ -16,16 +16,20 @@ namespace janus
         SaucrServer *svr_;
         SaucrServiceImpl(TxLogServer *sched);
 
-        RpcHandler(RequestVote, 6,
+        RpcHandler(RequestVote, 8,
                    const uint64_t &, c_id,
                    const uint64_t &, c_epoch,
                    const uint64_t &, last_seen_epoch,
                    const uint64_t &, last_seen_cmd_count,
                    bool_t *, vote_granted,
-                   bool_t *, f_ok)
+                   bool_t *, f_ok,
+                   uint64_t *, conflict_epoch,
+                   uint64_t *, conflict_cmd_count)
         {
             *f_ok = false;
             *vote_granted = false;
+            *conflict_epoch = 0;
+            *conflict_cmd_count = 0;
         }
 
         RpcHandler(Propose, 4,
@@ -50,6 +54,15 @@ namespace janus
         RpcHandler(Heartbeat, 3,
                    const uint64_t &, l_id,
                    const uint64_t &, l_epoch,
+                   bool_t *, f_ok)
+        {
+            *f_ok = false;
+        };
+
+        RpcHandler(SyncLogs, 4,
+                   const uint64_t &, l_id,
+                   const uint64_t &, l_epoch,
+                   const vector<LogEntry> &, logs,
                    bool_t *, f_ok)
         {
             *f_ok = false;

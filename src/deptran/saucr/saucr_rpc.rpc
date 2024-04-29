@@ -27,12 +27,23 @@ abstract service Saucr {
         uint64_t c_epoch,
         uint64_t last_seen_epoch,
         uint64_t last_seen_cmd_count |
+        bool_t f_ok,
         bool_t vote_granted,
+        uint64_t conflict_epoch,
+        uint64_t conflict_cmd_count
+    );
+
+    defer SyncLogs(
+        uint64_t l_id,
+        uint64_t l_epoch,
+        vector<LogEntry> logs |
         bool_t f_ok
     );
 
 }
 
 struct LogEntry {
+    uint64_t epoch;
+    uint64_t cmd_count;
     MarshallDeputy data;
 };

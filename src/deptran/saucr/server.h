@@ -5,6 +5,7 @@
 #include "zab_command.h"
 #include "commo.h"
 #include "../scheduler.h"
+#include "../classic/tpc_command.h"
 
 namespace janus
 {
@@ -26,17 +27,19 @@ namespace janus
         bool_t heartbeat_received = false;
         uint64_t voted_for = -1;
         map<pair<uint64_t, uint64_t>, uint64_t> zxid_log_index_map;
+        map<pair<uint64_t, uint64_t>, uint64_t> zxid_commit_log_index_map;
 
         uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL;
 
         uint64_t generate_timeout()
         {
-            return (700000 + (std::rand() % (1300000 - 700000 + 1)));
+            return (1000000 + (std::rand() % (2000000 - 1000000 + 1)));
         }
 
         /* Helper functions for the state machine */
         void convertToCandidate();
         void convertToLeader();
+        vector<vector<LogEntry>> createSyncLogs(shared_ptr<SaucrNewLeaderQuorumEvent> &ev);
         pair<uint64_t, uint64_t> getLastSeenZxid();
         bool_t requestVotes();
         bool_t sendHeartbeats();
@@ -60,6 +63,8 @@ namespace janus
                                const uint64_t &c_epoch,
                                const uint64_t &last_seen_epoch,
                                const uint64_t &last_seen_cmd_count,
+                               uint64_t *conflict_epoch,
+                               uint64_t *conflict_cmd_count,
                                bool_t *vote_granted,
                                bool_t *f_ok,
                                rrr::DeferredReply *defer);
@@ -84,6 +89,13 @@ namespace janus
                           const uint64_t &zxid_commit_count,
                           bool_t *f_ok,
                           rrr::DeferredReply *defer);
+
+        // Handles a sync from a leader
+        void HandleSync(const uint64_t &l_id,
+                        const uint64_t &l_epoch,
+                        const vector<LogEntry> &logs,
+                        bool_t *f_ok,
+                        rrr::DeferredReply *defer);
 
 #ifdef SAUCR_TEST_CORO
         bool Start(shared_ptr<Marshallable> &cmd, pair<uint64_t, uint64_t> *zxid);
