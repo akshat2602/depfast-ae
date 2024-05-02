@@ -12,9 +12,9 @@ namespace janus
         config_->SetLearnerAction();
         uint64_t start_rpc = config_->RpcTotal();
         if (testInitialElection() ||
-            // TEST_EXPAND(testReElection()))
-            TEST_EXPAND(testBasicAgree()) || TEST_EXPAND(testFailAgree()))
-        // TEST_EXPAND(testFailNoAgree()) || TEST_EXPAND(testRejoin()) ||
+            // TEST_EXPAND(testReElection()) ||
+            TEST_EXPAND(testBasicAgree()) || TEST_EXPAND(testFailAgree()) || TEST_EXPAND(testFailNoAgree()))
+        // || TEST_EXPAND(testRejoin()) ||
         // TEST_EXPAND(testConcurrentStarts()) || TEST_EXPAND(testBackup())
         {
             Print("TESTS FAILED");
@@ -71,8 +71,8 @@ namespace janus
     {                                                                                                                                                                                               \
         auto r = config_->DoAgreement(cmd, n, false);                                                                                                                                               \
         auto ind = zxid;                                                                                                                                                                            \
-        Log_info("r.first %lu r.second %lu", r.first, r.second);                                                                                                                                    \
-        Log_info("ind.first %lu ind.second %lu", ind.first, ind.second);                                                                                                                            \
+        Log_debug("r.first %lu r.second %lu", r.first, r.second);                                                                                                                                   \
+        Log_debug("ind.first %lu ind.second %lu", ind.first, ind.second);                                                                                                                           \
         Assert2(r.second > 0, "failed to reach agreement for command %d among %d servers, expected commit index>0, got %" PRId64, cmd, n, r.second);                                                \
         Assert2(r.first == ind.first && r.second == ind.second, "agreement zxid incorrect. got .first %ld .second %ld, expected .first %ld .second %ld", r.first, r.second, ind.first, ind.second); \
     }
@@ -116,7 +116,7 @@ namespace janus
         int leader = config_->OneLeader();
         AssertOneLeader(leader);
         // disconnect leader - make sure a new one is elected
-        Log_debug("disconnecting old leader");
+        Log_info("disconnecting old leader");
         config_->Disconnect(leader);
         int oldLeader = leader;
         Coroutine::Sleep(ELECTIONTIMEOUT);
@@ -125,22 +125,22 @@ namespace janus
         AssertReElection(leader, oldLeader);
         // reconnect old leader - should not disturb new leader
         config_->Reconnect(oldLeader);
-        Log_debug("reconnecting old leader");
+        Log_info("reconnecting old leader");
         Coroutine::Sleep(ELECTIONTIMEOUT);
         AssertOneLeader(config_->OneLeader(leader));
         // no quorum -> no leader
-        Log_debug("disconnecting more servers");
+        Log_info("disconnecting more servers");
         config_->Disconnect((leader + 1) % NSERVERS);
         config_->Disconnect((leader + 2) % NSERVERS);
         config_->Disconnect(leader);
         Assert(config_->NoLeader());
         // quorum restored
-        Log_debug("reconnecting a server to enable majority");
+        Log_info("reconnecting a server to enable majority");
         config_->Reconnect((leader + 2) % NSERVERS);
         Coroutine::Sleep(ELECTIONTIMEOUT);
         AssertOneLeader(config_->OneLeader());
         // rejoin all servers
-        Log_debug("rejoining all servers");
+        Log_info("rejoining all servers");
         config_->Reconnect((leader + 1) % NSERVERS);
         config_->Reconnect(leader);
         Coroutine::Sleep(ELECTIONTIMEOUT);
@@ -157,9 +157,9 @@ namespace janus
         {
             // make sure no commits exist before any agreements are started
             AssertNoneCommitted(zxid_);
-            Log_info("NONE COMMITTED");
+            Log_debug("NONE COMMITTED");
             // Get the current leader to fetch the latest epoch
-            Log_info("STARTING AGREEMENT");
+            Log_debug("STARTING AGREEMENT");
             // complete 1 agreement and make sure its index is as expected
             DoAgreeAndAssertZxid((int)(i + 300), NSERVERS, make_pair(zxid_.first, zxid_.second++));
         }
@@ -171,6 +171,8 @@ namespace janus
         Init2(4, "Agreement despite follower disconnection");
         // disconnect 2 followers
         auto leader = config_->OneLeader();
+        zxid_ = config_->GetLastCommittedZxid();
+        zxid_.second++;
         AssertOneLeader(leader);
         Log_debug("disconnecting two followers leader");
         config_->Disconnect((leader + 1) % NSERVERS);
@@ -193,32 +195,32 @@ namespace janus
         Passed2();
     }
 
-    // int SaucrTest::testFailNoAgree(void)
-    // {
-    //     Init2(5, "No agreement if too many followers disconnect");
-    //     // disconnect 3 followers
-    //     auto leader = config_->OneLeader();
-    //     AssertOneLeader(leader);
-    //     config_->Disconnect((leader + 1) % NSERVERS);
-    //     config_->Disconnect((leader + 2) % NSERVERS);
-    //     config_->Disconnect((leader + 3) % NSERVERS);
-    //     // attempt to do an agreement
-    //     uint64_t index, term;
-    //     AssertStartOk(config_->Start(leader, 501, &index, &term));
-    //     Assert2(index == index_++ && term > 0,
-    //             "Start() returned unexpected index (%ld, expected %ld) and/or term (%ld, expected >0)",
-    //             index, index_ - 1, term);
-    //     Coroutine::Sleep(ELECTIONTIMEOUT);
-    //     AssertNoneCommitted(index);
-    //     // reconnect followers
-    //     config_->Reconnect((leader + 1) % NSERVERS);
-    //     config_->Reconnect((leader + 2) % NSERVERS);
-    //     config_->Reconnect((leader + 3) % NSERVERS);
-    //     // do agreement in restored quorum
-    //     Coroutine::Sleep(ELECTIONTIMEOUT);
-    //     DoAgreeAndAssertWaitSuccess(502, NSERVERS);
-    //     Passed2();
-    // }
+    int SaucrTest::testFailNoAgree(void)
+    {
+        Init2(5, "No agreement if too many followers disconnect");
+        // disconnect 3 followers
+        auto leader = config_->OneLeader();
+        AssertOneLeader(leader);
+        config_->Disconnect((leader + 1) % NSERVERS);
+        config_->Disconnect((leader + 2) % NSERVERS);
+        config_->Disconnect((leader + 3) % NSERVERS);
+        // attempt to do an agreement
+        pair<uint64_t, uint64_t> zxid;
+        AssertStartOk(config_->Start(leader, 501, &zxid));
+        Assert2(zxid.second == ++zxid_.second && zxid.first > 0,
+                "Start() returned unexpected index (%ld, expected %ld) and/or term (%ld, expected >0)",
+                zxid.second, zxid_.second - 1, zxid.first);
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        AssertNoneCommitted(zxid);
+        // reconnect followers
+        config_->Reconnect((leader + 1) % NSERVERS);
+        config_->Reconnect((leader + 2) % NSERVERS);
+        config_->Reconnect((leader + 3) % NSERVERS);
+        // do agreement in restored quorum
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        DoAgreeAndAssertWaitSuccess(502, NSERVERS);
+        Passed2();
+    }
 
     // int SaucrTest::testRejoin(void)
     // {

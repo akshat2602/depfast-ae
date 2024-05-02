@@ -42,6 +42,7 @@ namespace janus
         static SaucrFrame **replicas;
         static std::vector<int> committed_cmds[NSERVERS];
         static std::vector<unordered_map<std::string, int>> committed_zxids;
+        static pair<uint64_t, uint64_t> last_committed_zxid;
         static uint64_t rpc_count_last[NSERVERS];
 
         // disconnected_[svr] true if svr is disconnected by Disconnect()/Reconnect()
@@ -85,6 +86,9 @@ namespace janus
 
         // Returns committed values for server
         vector<int> GetCommitted(int svr);
+
+        // Returns the last committed zxid of all servers
+        pair<uint64_t, uint64_t> GetLastCommittedZxid(void);
 
         // Returns index of leader on success, < 0 on error.
         // If expected is specified, only returns success if the leader == expected

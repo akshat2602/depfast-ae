@@ -70,12 +70,14 @@ namespace janus
                                uint64_t *conflict_cmd_count,
                                bool_t *vote_granted,
                                bool_t *f_ok,
+                               uint64_t *reply_epoch,
                                rrr::DeferredReply *defer);
 
         // Handles a heartbeat RPC from a leader, acks the heartbeat if there's no epoch mismatch else rejects it
         void HandleHeartbeat(const uint64_t &l_id,
                              const uint64_t &l_epoch,
                              bool_t *f_ok,
+                             uint64_t *reply_epoch,
                              rrr::DeferredReply *defer);
 
         // Handles a proposal from a leader
@@ -83,6 +85,7 @@ namespace janus
                            const uint64_t &l_epoch,
                            const LogEntry &entry,
                            bool_t *f_ok,
+                           uint64_t *reply_epoch,
                            rrr::DeferredReply *defer);
 
         // Handles a commit from a leader
@@ -91,6 +94,7 @@ namespace janus
                           const uint64_t &zxid_commit_epoch,
                           const uint64_t &zxid_commit_count,
                           bool_t *f_ok,
+                          uint64_t *reply_epoch,
                           rrr::DeferredReply *defer);
 
         // Handles a sync from a leader
@@ -98,6 +102,7 @@ namespace janus
                         const uint64_t &l_epoch,
                         const vector<LogEntry> &logs,
                         bool_t *f_ok,
+                        uint64_t *reply_epoch,
                         rrr::DeferredReply *defer);
 
 #ifdef SAUCR_TEST_CORO

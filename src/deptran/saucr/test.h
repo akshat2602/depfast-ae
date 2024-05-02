@@ -14,7 +14,7 @@ namespace janus
         SaucrTestConfig *config_;
         uint64_t init_rpcs_;
         uint64_t cmd = 0;
-        pair<uint64_t, uint64_t> zxid_= {1, 1};
+        pair<uint64_t, uint64_t> zxid_;
 
     public:
         SaucrTest(SaucrTestConfig *config) : config_(config) {}

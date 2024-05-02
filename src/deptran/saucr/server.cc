@@ -34,7 +34,7 @@ namespace janus
         {
             return false;
         }
-        // Log_debug("Locking mutex");
+        // Log_info("Locking mutex");
         this->mtx_.lock();
         LogEntry entry;
         auto zabmarshal = dynamic_pointer_cast<ZABMarshallable>(cmd);
@@ -48,7 +48,7 @@ namespace janus
         log.push_back(entry);
         zxid_log_index_map[{entry.epoch, entry.cmd_count}] = log.size() - 1;
         cmd_count++;
-        // Log_debug("Unlocking mutex");
+        // Log_info("Unlocking mutex");
         this->mtx_.unlock();
         Log_info("Starting command at epoch: %lu, cmd_count: %lu", entry.epoch, entry.cmd_count);
         return true;
@@ -91,23 +91,13 @@ namespace janus
                     {
                         if (sendProposal(entry))
                         {
+                            Log_info("Sent Proposal");
                             if (commitProposal(entry))
                             {
-                                
                                 std::shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
                                 app_next_(*cmd);
                                 Log_info("Committed Proposal");
                             }
-                            else
-                            {
-                                // Akshat: Reason what to do here
-                                Log_info("Failed to commit Proposal");
-                            }
-                        }
-                        else
-                        {
-                            // Akshat: reason what to do here
-                            Log_info("Failed to send Proposal");
                         }
                     }
                 }
@@ -218,6 +208,18 @@ namespace janus
     {
         auto ev = commo()->SendHeartbeat(partition_id_, loc_id_, loc_id_, current_epoch);
         ev->Wait(20000);
+        for (auto reply_epoch : ev->reply_epochs_)
+        {
+            if (reply_epoch > current_epoch)
+            {
+                mtx_.lock();
+                state = ZABState::FOLLOWER;
+                voted_for = -1;
+                current_epoch = reply_epoch;
+                mtx_.unlock();
+                return ev->No();
+            }
+        }
         return ev->Yes();
     }
 
@@ -232,7 +234,31 @@ namespace janus
             auto syncLog = createSyncLogs(ev);
             commo()->SendSync(partition_id_, loc_id_, loc_id_, current_epoch, ev, syncLog);
             ev->Wait(20000);
+            for (auto reply_epoch : ev->reply_epochs_)
+            {
+                if (reply_epoch > current_epoch)
+                {
+                    mtx_.lock();
+                    state = ZABState::FOLLOWER;
+                    voted_for = -1;
+                    current_epoch = reply_epoch;
+                    mtx_.unlock();
+                    return ev->No();
+                }
+            }
             return ev->Yes();
+        }
+        for (auto reply_epoch : ev->reply_epochs_)
+        {
+            if (reply_epoch > current_epoch)
+            {
+                mtx_.lock();
+                state = ZABState::FOLLOWER;
+                voted_for = -1;
+                current_epoch = reply_epoch;
+                mtx_.unlock();
+                return ev->No();
+            }
         }
         return ev->Yes();
     }
@@ -240,9 +266,20 @@ namespace janus
     bool_t SaucrServer::sendProposal(LogEntry &entry)
     {
         auto ev = commo()->SendProposal(partition_id_, loc_id_, loc_id_, current_epoch, entry);
-        Log_info("Sent Proposal from: %lu, with epoch: %lu at line 201", loc_id_, current_epoch);
         ev->Wait(20000);
-        Log_info("Sent Proposal from: %lu, with epoch: %lu at line 203", loc_id_, current_epoch);
+        for (auto reply_epoch : ev->reply_epochs_)
+        {
+            if (reply_epoch > current_epoch)
+            {
+                mtx_.lock();
+                state = ZABState::FOLLOWER;
+                voted_for = -1;
+                current_epoch = reply_epoch;
+                mtx_.unlock();
+                return ev->No();
+            }
+        }
+        Log_info("Sent Proposal from: %lu, with epoch: %lu", loc_id_, current_epoch);
         return ev->Yes();
     }
 
@@ -252,6 +289,19 @@ namespace janus
         zxid_commit_log_index_map[{entry.epoch, entry.cmd_count}] = commit_log.size() - 1;
         auto ev = commo()->SendCommit(partition_id_, loc_id_, loc_id_, current_epoch, entry.epoch, entry.cmd_count);
         ev->Wait(20000);
+        // Check if any server has rejected the commit due to a epoch conflict
+        for (auto reply_epoch : ev->reply_epochs_)
+        {
+            if (reply_epoch > current_epoch)
+            {
+                mtx_.lock();
+                state = ZABState::FOLLOWER;
+                voted_for = -1;
+                current_epoch = reply_epoch;
+                mtx_.unlock();
+                return ev->No();
+            }
+        }
         Log_info("Sent Commit from: %lu, with epoch: %lu", loc_id_, current_epoch);
         return ev->Yes();
     }
@@ -290,18 +340,10 @@ namespace janus
         zxid_log_index_map[{entry.epoch, entry.cmd_count}] = log.size() - 1;
         if (sendProposal(entry))
         {
+            Log_info("Sent Noop Command");
             if (commitProposal(entry))
             {
                 Log_info("Committed Noop Command");
-            }
-            else
-            {
-                Log_info("Failed to commit Noop Command");
-                // Step down as leader
-                mtx_.lock();
-                state = ZABState::FOLLOWER;
-                voted_for = -1;
-                mtx_.unlock();
             }
         }
     }
@@ -315,6 +357,7 @@ namespace janus
                                         uint64_t *conflict_cmd_count,
                                         bool_t *vote_granted,
                                         bool_t *f_ok,
+                                        uint64_t *reply_epoch,
                                         rrr::DeferredReply *defer)
     {
         *f_ok = true;
@@ -329,6 +372,7 @@ namespace janus
         if (c_epoch < current_epoch)
         {
             *vote_granted = false;
+            *reply_epoch = current_epoch;
             mtx_.unlock();
             Log_info("Did not vote for: %lu, because c_epoch is less", c_id);
             defer->reply();
@@ -342,7 +386,7 @@ namespace janus
             voted_for = -1;
             state = ZABState::FOLLOWER;
         }
-
+        *reply_epoch = current_epoch;
         // If the server has already voted for another candidate, do not vote
         if (voted_for != -1 && voted_for != c_id)
         {
@@ -399,6 +443,7 @@ namespace janus
                                  const uint64_t &l_epoch,
                                  const vector<LogEntry> &logs,
                                  bool_t *f_ok,
+                                 uint64_t *reply_epoch,
                                  rrr::DeferredReply *defer)
     {
         *f_ok = true;
@@ -439,6 +484,7 @@ namespace janus
     void SaucrServer::HandleHeartbeat(const uint64_t &l_id,
                                       const uint64_t &l_epoch,
                                       bool_t *f_ok,
+                                      uint64_t *reply_epoch,
                                       rrr::DeferredReply *defer)
     {
         *f_ok = true;
@@ -446,6 +492,7 @@ namespace janus
         mtx_.lock();
         if (l_epoch < current_epoch)
         {
+            *reply_epoch = current_epoch;
             mtx_.unlock();
             *f_ok = false;
             defer->reply();
@@ -458,6 +505,7 @@ namespace janus
             // voted_for = -1;
             voted_for = l_id;
         }
+        *reply_epoch = current_epoch;
         heartbeat_received = true;
         mtx_.unlock();
         defer->reply();
@@ -468,6 +516,7 @@ namespace janus
                                     const uint64_t &l_epoch,
                                     const LogEntry &entry,
                                     bool_t *f_ok,
+                                    uint64_t *reply_epoch,
                                     rrr::DeferredReply *defer)
     {
         *f_ok = true;
@@ -475,6 +524,7 @@ namespace janus
         mtx_.lock();
         if (l_epoch < current_epoch)
         {
+            *reply_epoch = current_epoch;
             mtx_.unlock();
             *f_ok = false;
             defer->reply();
@@ -487,6 +537,7 @@ namespace janus
             // Akshat: Reason about whether to set voted_for to -1 here
             voted_for = l_id;
         }
+        *reply_epoch = current_epoch;
         auto zxid = make_pair(entry.epoch, entry.cmd_count);
         Log_info("Accepted Proposal from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
         log.push_back(entry);
@@ -501,6 +552,7 @@ namespace janus
                                    const uint64_t &zxid_commit_epoch,
                                    const uint64_t &zxid_commit_count,
                                    bool_t *f_ok,
+                                   uint64_t *reply_epoch,
                                    rrr::DeferredReply *defer)
     {
         *f_ok = true;
@@ -508,6 +560,7 @@ namespace janus
         mtx_.lock();
         if (l_epoch < current_epoch)
         {
+            *reply_epoch = current_epoch;
             mtx_.unlock();
             *f_ok = false;
             defer->reply();
@@ -519,6 +572,7 @@ namespace janus
             state = ZABState::FOLLOWER;
             voted_for = l_id;
         }
+        *reply_epoch = current_epoch;
         Log_info("Accepted Commit from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
         // Akshat: Reason about this
         auto idx = zxid_log_index_map[{zxid_commit_epoch, zxid_commit_count}];

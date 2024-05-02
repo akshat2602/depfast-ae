@@ -32,7 +32,8 @@ namespace janus
                 bool_t f_ok;
                 uint64_t conflict_last_seen_zxid_epoch;
                 uint64_t conflict_last_seen_zxid_count;
-                fu->get_reply() >> vote_granted >> f_ok >> conflict_last_seen_zxid_epoch >> conflict_last_seen_zxid_count;
+                uint64_t reply_epoch;
+                fu->get_reply() >> vote_granted >> f_ok >> conflict_last_seen_zxid_epoch >> conflict_last_seen_zxid_count >> reply_epoch;
                 ev->conflict_last_seen_zxid_[p.first] = {conflict_last_seen_zxid_epoch, conflict_last_seen_zxid_count};
                 auto conflict_zxid = ev->conflict_last_seen_zxid_[p.first];
                 Log_info("RequestVote reply from %lu: vote_granted = %d, f_ok = %d, conflict_last_seen_zxid = %lu, %lu", p.first, vote_granted, f_ok, conflict_zxid.first, conflict_zxid.second);
@@ -88,7 +89,8 @@ namespace janus
             fuattr.callback = [ev](Future *fu)
             {
                 bool_t f_ok;
-                fu->get_reply() >> f_ok;
+                uint64_t reply_epoch;
+                fu->get_reply() >> f_ok >> reply_epoch;
                 if (f_ok)
                 {
                     ev->VoteYes();
@@ -127,7 +129,8 @@ namespace janus
             fuattr.callback = [ev](Future *fu)
             {
                 bool_t f_ok;
-                fu->get_reply() >> f_ok;
+                uint64_t reply_epoch;
+                fu->get_reply() >> f_ok >> reply_epoch;
                 Log_info("Proposal reply f_ok = %d", f_ok);
                 if (f_ok)
                 {
@@ -169,7 +172,8 @@ namespace janus
             fuattr.callback = [ev](Future *fu)
             {
                 bool_t f_ok;
-                fu->get_reply() >> f_ok;
+                uint64_t reply_epoch;
+                fu->get_reply() >> f_ok >> reply_epoch;
                 Log_info("Commit reply f_ok = %d", f_ok);
                 if (f_ok)
                 {
@@ -207,7 +211,7 @@ namespace janus
             {
                 continue;
             }
-            if (ev->GetVotes()[i] == SAUCR_VOTE_GRANTED || ev->GetVotes()[i] == SAUCR_VOTE_NOT_GRANTED)
+            if (ev->GetVotes()[i] == SAUCR_VOTE_GRANTED || ev->GetVotes()[i] == SAUCR_VOTE_NOT_GRANTED || logs.size() == 0)
             {
                 continue;
             }
@@ -216,12 +220,15 @@ namespace janus
             fuattr.callback = [ev, p](Future *fu)
             {
                 bool_t f_ok;
-                fu->get_reply() >> f_ok;
+                uint64_t reply_epoch;
+                fu->get_reply() >> f_ok >> reply_epoch;
                 if (f_ok)
                 {
                     ev->VoteYes(p.first);
                 }
             };
+            Log_info("SendSync: %lu", p.first);
+            Log_info("Log size: %lu", logs[i].size());
             Call_Async(proxy,
                        SyncLogs,
                        l_id,

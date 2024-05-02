@@ -39,7 +39,7 @@ namespace janus
     SaucrFrame **SaucrTestConfig::replicas = nullptr;
     std::vector<int> SaucrTestConfig::committed_cmds[NSERVERS];
     std::vector<unordered_map<string, int>> SaucrTestConfig::committed_zxids;
-    // std::vector<int> SaucrTestConfig::committed_cmds[NSERVERS];
+    pair<uint64_t, uint64_t> SaucrTestConfig::last_committed_zxid;
     uint64_t SaucrTestConfig::rpc_count_last[NSERVERS];
 
     SaucrTestConfig::SaucrTestConfig(SaucrFrame **replicas_)
@@ -67,9 +67,10 @@ namespace janus
                                                 {
                     verify(cmd.kind_ == MarshallDeputy::CMD_ZAB_COMMIT);
                     auto& command = dynamic_cast<ZABMarshallable&>(cmd);
-                    Log_info("server %d committed value %d at zxid.epoch %d and zxid.transaction_id %d", i, command.cmd, command.zxid.first, command.zxid.second);
+                    Log_debug("server %d committed value %d at zxid.epoch %d and zxid.transaction_id %d", i, command.cmd, command.zxid.first, command.zxid.second);
                     SaucrTestConfig::committed_cmds[i].push_back(command.cmd); 
-                    SaucrTestConfig::committed_zxids[i][pair_to_string(command.zxid)] = SaucrTestConfig::committed_cmds[i].size() - 1; });
+                    SaucrTestConfig::committed_zxids[i][pair_to_string(command.zxid)] = SaucrTestConfig::committed_cmds[i].size() - 1; 
+                    SaucrTestConfig::last_committed_zxid = command.zxid; });
         }
     }
 
@@ -116,7 +117,7 @@ namespace janus
 
     pair<uint64_t, uint64_t> SaucrTestConfig::DoAgreement(int cmd, int n, bool retry)
     {
-        Log_info("Doing 1 round of Saucr agreement");
+        Log_debug("Doing 1 round of Saucr agreement");
         auto start = chrono::steady_clock::now();
         while ((chrono::steady_clock::now() - start) < chrono::seconds{10})
         {
@@ -132,7 +133,7 @@ namespace janus
                     continue;
                 if (Start(i, cmd, &zxid))
                 {
-                    Log_info("starting cmd at line 130");
+                    Log_debug("starting cmd at line 130");
                     ldr = i;
                     break;
                 }
@@ -151,19 +152,19 @@ namespace janus
                     }
                     else if (nc >= n)
                     {
-                        Log_info("reached agreement");
+                        Log_debug("reached agreement");
                         for (int i = 0; i < NSERVERS; i++)
                         {
-                            Log_info("in here 157");
+                            Log_debug("in here 157");
                             auto it = committed_zxids[i].find(pair_to_string(zxid));
                             if (it != committed_zxids[i].end())
                             {
                                 // Key found
-                                Log_info("found committed log at server %d", i);
+                                Log_debug("found committed log at server %d", i);
                                 auto idx = it->second;
                                 if (committed_cmds[i][idx] == cmd)
                                 {
-                                    Log_info("committed value is the same as given");
+                                    Log_debug("committed value is the same as given");
                                     return zxid;
                                 }
                                 break;
@@ -200,8 +201,8 @@ namespace janus
         {
             if (committed_zxids[i].find(searchString) != committed_zxids[i].end())
             {
-                Log_info("committed_zxid %d", committed_zxids[i][searchString]);
-                Log_info("found committed log at server %d", i);
+                Log_debug("committed_zxid %d", committed_zxids[i][searchString]);
+                Log_debug("found committed log at server %d", i);
                 count++;
             }
         }
@@ -221,7 +222,7 @@ namespace janus
 
     int SaucrTestConfig::waitOneLeader(bool want_leader, int expected)
     {
-        Log_info("expecting leader %d", expected);
+        Log_debug("expecting leader %d", expected);
         uint64_t mostRecentEpoch = 0, epoch;
         int leader = -1, i, retry;
         bool isleader;
@@ -304,6 +305,11 @@ namespace janus
             }
         }
         return epoch;
+    }
+
+    pair<uint64_t, uint64_t> SaucrTestConfig::GetLastCommittedZxid(void)
+    {
+        return last_committed_zxid;
     }
 
     void SaucrTestConfig::Disconnect(int svr)

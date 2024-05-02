@@ -30,6 +30,8 @@ namespace janus
         // SaucrBaseQuorumEvent() : QuorumEvent(NSERVERS, ceil(NSERVERS / 2)) {}
         SaucrBaseQuorumEvent(int n_total, int quorum) : QuorumEvent(n_total, quorum) {}
 
+        vector<uint64_t> reply_epochs_ = vector<uint64_t>(NSERVERS, 0);
+
         void VoteYes()
         {
             this->QuorumEvent::VoteYes();
@@ -88,7 +90,6 @@ namespace janus
 
         bool Yes() override
         {
-            Log_info("SaucrNewLeaderQuorumEvent::Yes() n_yes_voted_ = %d", n_voted_yes_);
             return SaucrBaseQuorumEvent::Yes();
         }
 
