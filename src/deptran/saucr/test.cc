@@ -11,8 +11,9 @@ namespace janus
         Print("START WHOLISTIC TESTS");
         config_->SetLearnerAction();
         uint64_t start_rpc = config_->RpcTotal();
-        if (testInitialElection() || TEST_EXPAND(testReElection()))
-        // TEST_EXPAND(testBasicAgree()) || TEST_EXPAND(testFailAgree()) ||
+        if (testInitialElection() ||
+            // TEST_EXPAND(testReElection()))
+            TEST_EXPAND(testBasicAgree()) || TEST_EXPAND(testFailAgree()))
         // TEST_EXPAND(testFailNoAgree()) || TEST_EXPAND(testRejoin()) ||
         // TEST_EXPAND(testConcurrentStarts()) || TEST_EXPAND(testBackup())
         {
@@ -46,38 +47,40 @@ namespace janus
 #define AssertOneLeader(ldr) Assert(ldr >= 0)
 #define AssertReElection(ldr, old) \
     Assert2(ldr != old, "no reelection despite leader being disconnected")
-#define AssertNoneCommitted(index)                             \
-    {                                                          \
-        auto nc = config_->NCommitted(index);                  \
-        Assert2(nc == 0,                                       \
-                "%d servers unexpectedly committed index %ld", \
-                nc, index)                                     \
+#define AssertNoneCommitted(zxid)                                                   \
+    {                                                                               \
+        auto nc = config_->NCommitted(zxid);                                        \
+        Assert2(nc == 0,                                                            \
+                "%d servers unexpectedly committed zxid.first %ld zxid.second %ld", \
+                nc, zxid.first, zxid.second)                                        \
     }
-#define AssertNCommitted(index, expected)                       \
-    {                                                           \
-        auto nc = config_->NCommitted(index);                   \
-        Assert2(nc == expected,                                 \
-                "%d servers committed index %ld (%d expected)", \
-                nc, index, expected)                            \
+#define AssertNCommitted(zxid, expected)                                         \
+    {                                                                            \
+        auto nc = config_->NCommitted(zxid);                                     \
+        Assert2(nc == expected,                                                  \
+                "%d servers committed zxid.first %ld zxid.second (%d expected)", \
+                nc, zxid.first, zxid.second, expected)                           \
     }
 #define AssertStartOk(ok) Assert2(ok, "unexpected leader change during Start()")
-#define AssertWaitNoError(ret, index) \
-    Assert2(ret != -3, "committed values differ for index %ld", index)
-#define AssertWaitNoTimeout(ret, index, n)                                                \
-    Assert2(ret != -1, "waited too long for %d server(s) to commit index %ld", n, index); \
-    Assert2(ret != -2, "term moved on before index %ld committed by %d server(s)", index, n)
-#define DoAgreeAndAssertIndex(cmd, n, index)                                                                                           \
-    {                                                                                                                                  \
-        auto r = config_->DoAgreement(cmd, n, false);                                                                                  \
-        auto ind = index;                                                                                                              \
-        Assert2(r > 0, "failed to reach agreement for command %d among %d servers, expected commit index>0, got %" PRId64, cmd, n, r); \
-        Assert2(r == ind, "agreement index incorrect. got %ld, expected %ld", r, ind);                                                 \
+#define AssertWaitNoError(ret, zxid) \
+    Assert2(ret != -3, "committed values differ for zxid.first %ld zxid.second %ld", zxid.first, zxid.second)
+#define AssertWaitNoTimeout(ret, zxid, n)                                                                                         \
+    Assert2(ret != -1, "waited too long for %d server(s) to commit zxid.first %ld, zxid.second %ld", n, zxid.first, zxid.second); \
+    Assert2(ret != -2, "term moved on before zxid.first %ld zxid.second %ld committed by %d server(s)", zxid.first, zxid.second, n)
+#define DoAgreeAndAssertZxid(cmd, n, zxid)                                                                                                                                                          \
+    {                                                                                                                                                                                               \
+        auto r = config_->DoAgreement(cmd, n, false);                                                                                                                                               \
+        auto ind = zxid;                                                                                                                                                                            \
+        Log_info("r.first %lu r.second %lu", r.first, r.second);                                                                                                                                    \
+        Log_info("ind.first %lu ind.second %lu", ind.first, ind.second);                                                                                                                            \
+        Assert2(r.second > 0, "failed to reach agreement for command %d among %d servers, expected commit index>0, got %" PRId64, cmd, n, r.second);                                                \
+        Assert2(r.first == ind.first && r.second == ind.second, "agreement zxid incorrect. got .first %ld .second %ld, expected .first %ld .second %ld", r.first, r.second, ind.first, ind.second); \
     }
-#define DoAgreeAndAssertWaitSuccess(cmd, n)                                                  \
-    {                                                                                        \
-        auto r = config_->DoAgreement(cmd, n, true);                                         \
-        Assert2(r > 0, "failed to reach agreement for command %d among %d servers", cmd, n); \
-        index_ = r + 1;                                                                      \
+#define DoAgreeAndAssertWaitSuccess(cmd, n)                                                         \
+    {                                                                                               \
+        auto r = config_->DoAgreement(cmd, n, true);                                                \
+        Assert2(r.second > 0, "failed to reach agreement for command %d among %d servers", cmd, n); \
+        zxid_ = r;                                                                                  \
     }
 
     int SaucrTest::testInitialElection(void)
@@ -145,45 +148,50 @@ namespace janus
         Passed2();
     }
 
-    // int SaucrTest::testBasicAgree(void)
-    // {
-    //     Init2(3, "Basic agreement");
-    //     for (int i = 1; i <= 3; i++)
-    //     {
-    //         // make sure no commits exist before any agreements are started
-    //         AssertNoneCommitted(index_);
-    //         // complete 1 agreement and make sure its index is as expected
-    //         DoAgreeAndAssertIndex((int)(index_ + 300), NSERVERS, index_++);
-    //     }
-    //     Passed2();
-    // }
+    int SaucrTest::testBasicAgree(void)
+    {
+        Init2(3, "Basic agreement");
+        int epoch = config_->OneEpoch();
+        zxid_ = make_pair(epoch, 1);
+        for (int i = 1; i <= 3; i++)
+        {
+            // make sure no commits exist before any agreements are started
+            AssertNoneCommitted(zxid_);
+            Log_info("NONE COMMITTED");
+            // Get the current leader to fetch the latest epoch
+            Log_info("STARTING AGREEMENT");
+            // complete 1 agreement and make sure its index is as expected
+            DoAgreeAndAssertZxid((int)(i + 300), NSERVERS, make_pair(zxid_.first, zxid_.second++));
+        }
+        Passed2();
+    }
 
-    // int SaucrTest::testFailAgree(void)
-    // {
-    //     Init2(4, "Agreement despite follower disconnection");
-    //     // disconnect 2 followers
-    //     auto leader = config_->OneLeader();
-    //     AssertOneLeader(leader);
-    //     Log_debug("disconnecting two followers leader");
-    //     config_->Disconnect((leader + 1) % NSERVERS);
-    //     config_->Disconnect((leader + 2) % NSERVERS);
-    //     // Agreement despite 2 disconnected servers
-    //     Log_debug("try commit a few commands after disconnect");
-    //     DoAgreeAndAssertIndex(401, NSERVERS - 2, index_++);
-    //     DoAgreeAndAssertIndex(402, NSERVERS - 2, index_++);
-    //     Coroutine::Sleep(ELECTIONTIMEOUT);
-    //     DoAgreeAndAssertIndex(403, NSERVERS - 2, index_++);
-    //     DoAgreeAndAssertIndex(404, NSERVERS - 2, index_++);
-    //     // reconnect followers
-    //     Log_debug("reconnect servers");
-    //     config_->Reconnect((leader + 1) % NSERVERS);
-    //     config_->Reconnect((leader + 2) % NSERVERS);
-    //     Coroutine::Sleep(ELECTIONTIMEOUT);
-    //     Log_debug("try commit a few commands after reconnect");
-    //     DoAgreeAndAssertWaitSuccess(405, NSERVERS);
-    //     DoAgreeAndAssertWaitSuccess(406, NSERVERS);
-    //     Passed2();
-    // }
+    int SaucrTest::testFailAgree(void)
+    {
+        Init2(4, "Agreement despite follower disconnection");
+        // disconnect 2 followers
+        auto leader = config_->OneLeader();
+        AssertOneLeader(leader);
+        Log_debug("disconnecting two followers leader");
+        config_->Disconnect((leader + 1) % NSERVERS);
+        config_->Disconnect((leader + 2) % NSERVERS);
+        // Agreement despite 2 disconnected servers
+        Log_debug("try commit a few commands after disconnect");
+        DoAgreeAndAssertZxid(401, NSERVERS - 2, make_pair(zxid_.first, zxid_.second++));
+        DoAgreeAndAssertZxid(402, NSERVERS - 2, make_pair(zxid_.first, zxid_.second++));
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        DoAgreeAndAssertZxid(403, NSERVERS - 2, make_pair(zxid_.first, zxid_.second++));
+        DoAgreeAndAssertZxid(404, NSERVERS - 2, make_pair(zxid_.first, zxid_.second++));
+        // reconnect followers
+        Log_debug("reconnect servers");
+        config_->Reconnect((leader + 1) % NSERVERS);
+        config_->Reconnect((leader + 2) % NSERVERS);
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        Log_debug("try commit a few commands after reconnect");
+        DoAgreeAndAssertWaitSuccess(405, NSERVERS);
+        DoAgreeAndAssertWaitSuccess(406, NSERVERS);
+        Passed2();
+    }
 
     // int SaucrTest::testFailNoAgree(void)
     // {
@@ -215,7 +223,7 @@ namespace janus
     // int SaucrTest::testRejoin(void)
     // {
     //     Init2(6, "Rejoin of disconnected leader");
-    //     DoAgreeAndAssertIndex(601, NSERVERS, index_++);
+    //     DoAgreeAndAssertZxid(601, NSERVERS, index_++);
     //     // disconnect leader
     //     auto leader1 = config_->OneLeader();
     //     AssertOneLeader(leader1);
@@ -384,7 +392,7 @@ namespace janus
     //     Log_debug("try to commit a lot of commands");
     //     for (int i = 1; i <= 50; i++)
     //     {
-    //         DoAgreeAndAssertIndex(800 + i, NSERVERS - 2, index_++);
+    //         DoAgreeAndAssertZxid(800 + i, NSERVERS - 2, index_++);
     //     }
     //     // reconnect the old leader and its follower
     //     Log_debug("reconnect the old leader and the follower");

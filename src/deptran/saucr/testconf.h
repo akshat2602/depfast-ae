@@ -33,14 +33,15 @@ namespace janus
     Print("TEST %d Passed (time taken: %d s)", _test_id_g, (std::chrono::system_clock::now() - _test_starttime_g) / 1000000000);
 
     extern string map_to_string(map<uint64_t, uint64_t> m);
+    extern string pair_to_string(pair<uint64_t, uint64_t> m);
 
     class SaucrTestConfig
     {
 
     private:
         static SaucrFrame **replicas;
-        static std::vector<pair<int, pair<uint64_t, uint64_t>>> committed_cmds[NSERVERS];
-        static std::map<int, vector<string>> committed_zxids;
+        static std::vector<int> committed_cmds[NSERVERS];
+        static std::vector<unordered_map<std::string, int>> committed_zxids;
         static uint64_t rpc_count_last[NSERVERS];
 
         // disconnected_[svr] true if svr is disconnected by Disconnect()/Reconnect()
@@ -83,7 +84,7 @@ namespace janus
         void GetState(int svr, bool *is_leader, uint64_t *epoch);
 
         // Returns committed values for server
-        vector<pair<int, pair<uint64_t, uint64_t>>> GetCommitted(int svr);
+        vector<int> GetCommitted(int svr);
 
         // Returns index of leader on success, < 0 on error.
         // If expected is specified, only returns success if the leader == expected

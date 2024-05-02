@@ -28,6 +28,7 @@ namespace janus
         uint64_t voted_for = -1;
         map<pair<uint64_t, uint64_t>, uint64_t> zxid_log_index_map;
         map<pair<uint64_t, uint64_t>, uint64_t> zxid_commit_log_index_map;
+        uint64_t cmd_count = 1;
 
         uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL;
 
@@ -35,6 +36,8 @@ namespace janus
         {
             return (1000000 + (std::rand() % (2000000 - 1000000 + 1)));
         }
+        void RunSaucrServer();
+        void ProposalSender();
 
         /* Helper functions for the state machine */
         void convertToCandidate();
@@ -107,7 +110,6 @@ namespace janus
     public:
         SaucrServer(Frame *frame);
         ~SaucrServer();
-        void RunSaucrServer();
 
     private:
         bool disconnected_ = false;

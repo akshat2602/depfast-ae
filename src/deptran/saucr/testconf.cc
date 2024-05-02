@@ -21,6 +21,11 @@ namespace janus
         return result;
     }
 
+    string pair_to_string(pair<uint64_t, uint64_t> p)
+    {
+        return to_string(p.first) + ":" + to_string(p.second);
+    }
+
     string vector_to_string(vector<uint64_t> exec_orders)
     {
         string s = "";
@@ -32,8 +37,8 @@ namespace janus
     }
 
     SaucrFrame **SaucrTestConfig::replicas = nullptr;
-    std::vector<pair<int, pair<uint64_t, uint64_t>>> SaucrTestConfig::committed_cmds[NSERVERS];
-    std::map<int, vector<string>> SaucrTestConfig::committed_zxids;
+    std::vector<int> SaucrTestConfig::committed_cmds[NSERVERS];
+    std::vector<unordered_map<string, int>> SaucrTestConfig::committed_zxids;
     // std::vector<int> SaucrTestConfig::committed_cmds[NSERVERS];
     uint64_t SaucrTestConfig::rpc_count_last[NSERVERS];
 
@@ -44,8 +49,8 @@ namespace janus
         for (int i = 0; i < NSERVERS; i++)
         {
             replicas[i]->svr_->rep_frame_ = replicas[i]->svr_->frame_;
-            SaucrTestConfig::committed_cmds[i].push_back(std::make_pair(-1, std::make_pair(0, 0)));
-            SaucrTestConfig::committed_zxids[i] = vector<string>();
+            SaucrTestConfig::committed_cmds[i].push_back(-1);
+            SaucrTestConfig::committed_zxids.push_back(unordered_map<string, int>());
             SaucrTestConfig::rpc_count_last[i] = 0;
             SaucrTestConfig::disconnected_[i] = false;
             SaucrTestConfig::slow_[i] = false;
@@ -62,9 +67,9 @@ namespace janus
                                                 {
                     verify(cmd.kind_ == MarshallDeputy::CMD_ZAB_COMMIT);
                     auto& command = dynamic_cast<ZABMarshallable&>(cmd);
-                    Log_debug("server %d committed value %d at zxid.epoch %d and zxid.transaction_id", i, command.cmd, command.zxid.first, command.zxid.second);
-                    SaucrTestConfig::committed_cmds[i].push_back(std::make_pair(command.cmd, command.zxid)); 
-                    SaucrTestConfig::committed_zxids[i].push_back(to_string(command.zxid.first) + ":" + to_string(command.zxid.second)); });
+                    Log_info("server %d committed value %d at zxid.epoch %d and zxid.transaction_id %d", i, command.cmd, command.zxid.first, command.zxid.second);
+                    SaucrTestConfig::committed_cmds[i].push_back(command.cmd); 
+                    SaucrTestConfig::committed_zxids[i][pair_to_string(command.zxid)] = SaucrTestConfig::committed_cmds[i].size() - 1; });
         }
     }
 
@@ -76,19 +81,19 @@ namespace janus
     //     }
     // }
 
-#ifdef SAUCR_PERF_TEST_CORO
-    void SaucrTestConfig::SetCommittedLearnerAction(function<function<void(Marshallable &)>(int)> callback)
-    {
-        for (int i = 0; i < NSERVERS; i++)
-        {
-            replicas[i]->svr_->RegCommitLearnerAction(callback(i));
-        }
-    }
-#endif
+    // #ifdef SAUCR_PERF_TEST_CORO
+    //     void SaucrTestConfig::SetCommittedLearnerAction(function<function<void(Marshallable &)>(int)> callback)
+    //     {
+    //         for (int i = 0; i < NSERVERS; i++)
+    //         {
+    //             replicas[i]->svr_->RegCommitLearnerAction(callback(i));
+    //         }
+    //     }
+    // #endif
 
     bool SaucrTestConfig::Start(int svr, int cmd, pair<uint64_t, uint64_t> *zxid)
     {
-        // Construct an empty TpcCommitCommand containing cmd as its tx_id_
+        // Construct an empty ZABMarshallableCmd containing cmd as its tx_id_
         auto cmdptr = std::make_shared<ZABMarshallable>();
         cmdptr->cmd = cmd;
         auto cmdptr_m = dynamic_pointer_cast<Marshallable>(cmdptr);
@@ -104,14 +109,14 @@ namespace janus
         replicas[svr]->svr_->GetState(is_leader, epoch);
     }
 
-    vector<pair<int, pair<uint64_t, uint64_t>>> SaucrTestConfig::GetCommitted(int svr)
+    vector<int> SaucrTestConfig::GetCommitted(int svr)
     {
         return committed_cmds[svr];
     }
 
     pair<uint64_t, uint64_t> SaucrTestConfig::DoAgreement(int cmd, int n, bool retry)
     {
-        Log_debug("Doing 1 round of Saucr agreement");
+        Log_info("Doing 1 round of Saucr agreement");
         auto start = chrono::steady_clock::now();
         while ((chrono::steady_clock::now() - start) < chrono::seconds{10})
         {
@@ -127,7 +132,7 @@ namespace janus
                     continue;
                 if (Start(i, cmd, &zxid))
                 {
-                    Log_debug("starting cmd at line 128");
+                    Log_info("starting cmd at line 130");
                     ldr = i;
                     break;
                 }
@@ -146,14 +151,19 @@ namespace janus
                     }
                     else if (nc >= n)
                     {
+                        Log_info("reached agreement");
                         for (int i = 0; i < NSERVERS; i++)
                         {
-                            if (SaucrTestConfig::committed_cmds[i].size() > zxid.second)
+                            Log_info("in here 157");
+                            auto it = committed_zxids[i].find(pair_to_string(zxid));
+                            if (it != committed_zxids[i].end())
                             {
-                                Log_debug("found commit log");
-                                auto cmd2 = SaucrTestConfig::committed_cmds[i][zxid.second].first;
-                                if (cmd == cmd2)
+                                // Key found
+                                Log_info("found committed log at server %d", i);
+                                auto idx = it->second;
+                                if (committed_cmds[i][idx] == cmd)
                                 {
+                                    Log_info("committed value is the same as given");
                                     return zxid;
                                 }
                                 break;
@@ -188,8 +198,10 @@ namespace janus
         string searchString = to_string(zxid.first) + ":" + to_string(zxid.second);
         for (int i = 0; i < NSERVERS; i++)
         {
-            if (std::find(committed_zxids[i].begin(), committed_zxids[i].end(), searchString) != committed_zxids[i].end())
+            if (committed_zxids[i].find(searchString) != committed_zxids[i].end())
             {
+                Log_info("committed_zxid %d", committed_zxids[i][searchString]);
+                Log_info("found committed log at server %d", i);
                 count++;
             }
         }

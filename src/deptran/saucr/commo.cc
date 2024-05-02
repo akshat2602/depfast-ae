@@ -74,7 +74,7 @@ namespace janus
                                                                uint64_t l_epoch)
     {
         Log_info("Heartbeat sending from %lu", site_id);
-        auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>();
+        auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>(NSERVERS, ceil(NSERVERS / 2));
         auto proxies = rpc_par_proxies_[par_id];
         for (auto &p : proxies)
         {
@@ -114,7 +114,7 @@ namespace janus
                                                               LogEntry &entry)
     {
         Log_info("Proposal sending from %lu", site_id);
-        auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>();
+        auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>(NSERVERS, ceil(NSERVERS / 2));
         auto proxies = rpc_par_proxies_[par_id];
         for (auto &p : proxies)
         {
@@ -128,6 +128,7 @@ namespace janus
             {
                 bool_t f_ok;
                 fu->get_reply() >> f_ok;
+                Log_info("Proposal reply f_ok = %d", f_ok);
                 if (f_ok)
                 {
                     ev->VoteYes();
@@ -155,7 +156,7 @@ namespace janus
                                                             uint64_t zxid_commit_count)
     {
         Log_info("Commit sending from %lu", site_id);
-        auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>();
+        auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>(NSERVERS, ceil(NSERVERS / 2));
         auto proxies = rpc_par_proxies_[par_id];
         for (auto &p : proxies)
         {
@@ -169,6 +170,7 @@ namespace janus
             {
                 bool_t f_ok;
                 fu->get_reply() >> f_ok;
+                Log_info("Commit reply f_ok = %d", f_ok);
                 if (f_ok)
                 {
                     ev->VoteYes();

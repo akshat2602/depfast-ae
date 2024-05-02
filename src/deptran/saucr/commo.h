@@ -27,7 +27,7 @@ namespace janus
         // int slow_path_quorum_;
 
     public:
-        SaucrBaseQuorumEvent() : QuorumEvent(NSERVERS, ceil(NSERVERS / 2)) {}
+        // SaucrBaseQuorumEvent() : QuorumEvent(NSERVERS, ceil(NSERVERS / 2)) {}
         SaucrBaseQuorumEvent(int n_total, int quorum) : QuorumEvent(n_total, quorum) {}
 
         void VoteYes()
@@ -49,12 +49,12 @@ namespace janus
         //     return (n_voted_yes_ >= slow_path_quorum_) && (is_recovery || (!thrifty && (n_voted_nonidentical_ + n_voted_no_) > (n_total_ - fast_path_quorum_)) || (thrifty && (!all_equal || n_voted_no_ > 0)));
         // }
 
-        bool Yes()
+        bool Yes() override
         {
             return QuorumEvent::Yes();
         }
 
-        bool No()
+        bool No() override
         {
             return QuorumEvent::No();
         }

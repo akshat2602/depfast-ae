@@ -10,18 +10,19 @@ namespace janus
     public:
         int cmd;
         pair<uint64_t, uint64_t> zxid;
+        bool_t is_noop = false;
 
         ZABMarshallable() : Marshallable(MarshallDeputy::CMD_ZAB_COMMIT) {}
 
         Marshal &ToMarshal(Marshal &m) const override
         {
-            m << cmd << zxid;
+            m << cmd << zxid << is_noop;
             return m;
         }
 
         Marshal &FromMarshal(Marshal &m) override
         {
-            m >> cmd >> zxid;
+            m >> cmd >> zxid >> is_noop;
             return m;
         }
     };

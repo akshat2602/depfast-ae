@@ -21,12 +21,36 @@ namespace janus
     void SaucrServer::Setup()
     {
         RunSaucrServer();
+        ProposalSender();
     }
 
 #ifdef SAUCR_TEST_CORO
     bool SaucrServer::Start(shared_ptr<Marshallable> &cmd, pair<uint64_t, uint64_t> *zxid)
     {
-        // Akshat: Start a command on the server, send the command to followers and wait for quorum and then return zxid
+        bool is_leader;
+        uint64_t temp_epoch;
+        this->GetState(&is_leader, &temp_epoch);
+        if (!is_leader)
+        {
+            return false;
+        }
+        // Log_debug("Locking mutex");
+        this->mtx_.lock();
+        LogEntry entry;
+        auto zabmarshal = dynamic_pointer_cast<ZABMarshallable>(cmd);
+        zabmarshal->zxid = make_pair(current_epoch, cmd_count);
+        auto cmdptr_m = dynamic_pointer_cast<Marshallable>(zabmarshal);
+        MarshallDeputy cmd_deputy(cmdptr_m);
+        entry.epoch = current_epoch;
+        entry.cmd_count = cmd_count;
+        entry.data = cmd_deputy;
+        *zxid = make_pair(entry.epoch, entry.cmd_count);
+        log.push_back(entry);
+        zxid_log_index_map[{entry.epoch, entry.cmd_count}] = log.size() - 1;
+        cmd_count++;
+        // Log_debug("Unlocking mutex");
+        this->mtx_.unlock();
+        Log_info("Starting command at epoch: %lu, cmd_count: %lu", entry.epoch, entry.cmd_count);
         return true;
     }
 
@@ -39,6 +63,58 @@ namespace janus
         return;
     }
 #endif
+
+    // Check if there are any new proposals to propose
+    // To do this, get the last seen zxid and check if there are any new commands to propose,
+    // if there are, propose them only if their epoch is the same as the current epoch
+    // If the epoch is different, don't propose.
+    void SaucrServer::ProposalSender()
+    {
+        Coroutine::CreateRun([this]()
+                             {
+            while(true)
+            {
+                bool is_leader;
+                uint64_t temp_epoch;
+                this->GetState(&is_leader, &temp_epoch);
+                if (!is_leader)
+                {
+                    Coroutine::Sleep(HEARTBEAT_INTERVAL);
+                    continue;
+                }
+                auto last_seen_zxid = getLastSeenZxid();
+                auto idx = zxid_log_index_map[last_seen_zxid];
+                for (int i = idx + 1; i < log.size(); i++)
+                {
+                    auto entry = log[i];
+                    if (entry.epoch == current_epoch && !dynamic_pointer_cast<ZABMarshallable>(entry.data.sp_data_)->is_noop)
+                    {
+                        if (sendProposal(entry))
+                        {
+                            if (commitProposal(entry))
+                            {
+                                
+                                std::shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
+                                app_next_(*cmd);
+                                Log_info("Committed Proposal");
+                            }
+                            else
+                            {
+                                // Akshat: Reason what to do here
+                                Log_info("Failed to commit Proposal");
+                            }
+                        }
+                        else
+                        {
+                            // Akshat: reason what to do here
+                            Log_info("Failed to send Proposal");
+                        }
+                    }
+                }
+
+                Coroutine::Sleep(HEARTBEAT_INTERVAL);
+            } });
+    }
 
     void SaucrServer::RunSaucrServer()
     {
@@ -164,7 +240,9 @@ namespace janus
     bool_t SaucrServer::sendProposal(LogEntry &entry)
     {
         auto ev = commo()->SendProposal(partition_id_, loc_id_, loc_id_, current_epoch, entry);
+        Log_info("Sent Proposal from: %lu, with epoch: %lu at line 201", loc_id_, current_epoch);
         ev->Wait(20000);
+        Log_info("Sent Proposal from: %lu, with epoch: %lu at line 203", loc_id_, current_epoch);
         return ev->Yes();
     }
 
@@ -174,6 +252,7 @@ namespace janus
         zxid_commit_log_index_map[{entry.epoch, entry.cmd_count}] = commit_log.size() - 1;
         auto ev = commo()->SendCommit(partition_id_, loc_id_, loc_id_, current_epoch, entry.epoch, entry.cmd_count);
         ev->Wait(20000);
+        Log_info("Sent Commit from: %lu, with epoch: %lu", loc_id_, current_epoch);
         return ev->Yes();
     }
 
@@ -194,21 +273,21 @@ namespace janus
         mtx_.lock();
         heartbeat_received = true;
         state = ZABState::LEADER;
+        cmd_count = 1;
         mtx_.unlock();
         LogEntry entry;
         int cmd = 0;
-        auto cmdptr = std::make_shared<TpcCommitCommand>();
-        auto vpd_p = std::make_shared<VecPieceData>();
-        vpd_p->sp_vec_piece_data_ = std::make_shared<vector<shared_ptr<SimpleCommand>>>();
-        cmdptr->tx_id_ = cmd;
-        cmdptr->cmd_ = vpd_p;
+        auto cmdptr = std::make_shared<ZABMarshallable>();
+        cmdptr->cmd = cmd;
+        cmdptr->is_noop = true;
+        cmdptr->zxid = make_pair(current_epoch, cmd_count);
         auto cmdptr_m = dynamic_pointer_cast<Marshallable>(cmdptr);
         MarshallDeputy data(cmdptr);
         entry.data = data;
         entry.epoch = current_epoch;
         entry.cmd_count = 0;
         log.push_back(entry);
-        zxid_log_index_map[{current_epoch, 0}] = log.size() - 1;
+        zxid_log_index_map[{entry.epoch, entry.cmd_count}] = log.size() - 1;
         if (sendProposal(entry))
         {
             if (commitProposal(entry))
@@ -447,6 +526,14 @@ namespace janus
         commit_log.push_back(entry);
         zxid_commit_log_index_map[{zxid_commit_epoch, zxid_commit_count}] = commit_log.size() - 1;
         mtx_.unlock();
+        shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
+        // Only execute the command if the command is not a noop
+        Log_info("Command noop: %d", dynamic_pointer_cast<ZABMarshallable>(cmd)->is_noop);
+        if (!dynamic_pointer_cast<ZABMarshallable>(cmd)->is_noop)
+        {
+            Log_info("Executing command");
+            app_next_(*cmd);
+        }
         defer->reply();
         return;
     }
