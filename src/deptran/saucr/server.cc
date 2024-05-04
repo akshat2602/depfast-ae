@@ -119,6 +119,7 @@ namespace janus
             switch (temp_state)
             {
             case ZABState::FOLLOWER:
+                Log_info("Follower at server: %lu", loc_id_);
                 // If the server is a follower, it should wait for a heartbeat/command from the leader
                 // If the server does not receive a heartbeat/command within the timeout, it should transition to a candidate
                 Coroutine::Sleep(generate_timeout());
@@ -129,12 +130,13 @@ namespace janus
                     // Transition to candidate and request for votes
                     convertToCandidate();
                     break;
-                }        
+                }
                 heartbeat_received = false;
                 mtx_.unlock();
                 break;
 
             case ZABState::CANDIDATE:
+                Log_info("Candidate at server: %lu", loc_id_);
                 // If the server is a candidate, it should request for votes from other servers
                 // If the server receives a majority of votes, it should transition to a leader
                 // If the server does not receive a majority of votes, it should transition back to a follower
@@ -148,16 +150,17 @@ namespace janus
                 mtx_.unlock();
                 break;
             case ZABState::LEADER:
+                Log_info("Leader at server: %lu", loc_id_);
                 Coroutine::Sleep(HEARTBEAT_INTERVAL);
                 // If the server is a leader, it should send heartbeats to other servers
-                // If the server does not receive a majority of acknowledgements, it should transition back to a follower
                 // If the server receives a majority of acknowledgements, it should proceed forward
                 if(!sendHeartbeats())
                 {
-                    Log_info("Stepping down as leader");
-                    mtx_.lock();
-                    state = ZABState::FOLLOWER;
-                    mtx_.unlock();
+                    Log_info("SUSSY SUSSY BAKA, PROBABLY DISCONNECTED BUT TEST IS SUSSY SUSSY");
+                    // Log_info("Stepping down as leader at server: %lu", loc_id_);
+                    // mtx_.lock();
+                    // state = ZABState::FOLLOWER;
+                    // mtx_.unlock();
                     break;
                 }
                 break;
@@ -184,7 +187,7 @@ namespace janus
                 continue;
             }
             auto p = conflict_zxids[i];
-            for (int i = zxid_log_index_map[p]; i < log.size(); i++)
+            for (int i = zxid_commit_log_index_map[p] + 1; i < commit_log.size(); i++)
             {
                 syncLog.push_back(commit_log[i]);
             }
@@ -195,13 +198,16 @@ namespace janus
 
     pair<uint64_t, uint64_t> SaucrServer::getLastSeenZxid()
     {
+        pair<uint64_t, uint64_t> last_seen_zxid = {0, 0};
+        mtx_.lock();
         if (commit_log.size() > 0)
         {
             auto entry = commit_log.back();
             Log_info("Last seen zxid: %lu, %lu at server: %lu with epoch %lu", entry.epoch, entry.cmd_count, loc_id_, current_epoch);
-            return {entry.epoch, entry.cmd_count};
+            last_seen_zxid = {entry.epoch, entry.cmd_count};
         }
-        return {0, 0};
+        mtx_.unlock();
+        return last_seen_zxid;
     }
 
     bool_t SaucrServer::sendHeartbeats()
@@ -212,10 +218,13 @@ namespace janus
         {
             if (reply_epoch > current_epoch)
             {
+                Log_info("Received higher epoch %lu", reply_epoch);
                 mtx_.lock();
                 state = ZABState::FOLLOWER;
                 voted_for = -1;
+                Log_info("Changing epoch from %lu to %lu", current_epoch, reply_epoch);
                 current_epoch = reply_epoch;
+                heartbeat_received = false;
                 mtx_.unlock();
                 return ev->No();
             }
@@ -241,6 +250,7 @@ namespace janus
                     mtx_.lock();
                     state = ZABState::FOLLOWER;
                     voted_for = -1;
+                    Log_info("Changing epoch from %lu to %lu", current_epoch, reply_epoch);
                     current_epoch = reply_epoch;
                     mtx_.unlock();
                     return ev->No();
@@ -255,6 +265,7 @@ namespace janus
                 mtx_.lock();
                 state = ZABState::FOLLOWER;
                 voted_for = -1;
+                Log_info("Changing epoch from %lu to %lu", current_epoch, reply_epoch);
                 current_epoch = reply_epoch;
                 mtx_.unlock();
                 return ev->No();
@@ -274,6 +285,7 @@ namespace janus
                 mtx_.lock();
                 state = ZABState::FOLLOWER;
                 voted_for = -1;
+                Log_info("Changing epoch from %lu to %lu", current_epoch, reply_epoch);
                 current_epoch = reply_epoch;
                 mtx_.unlock();
                 return ev->No();
@@ -297,6 +309,7 @@ namespace janus
                 mtx_.lock();
                 state = ZABState::FOLLOWER;
                 voted_for = -1;
+                Log_info("Changing epoch from %lu to %lu", current_epoch, reply_epoch);
                 current_epoch = reply_epoch;
                 mtx_.unlock();
                 return ev->No();
@@ -310,8 +323,8 @@ namespace janus
     {
         mtx_.lock();
         state = ZABState::CANDIDATE;
-        current_epoch++;
-        heartbeat_received = false;
+        current_epoch = current_epoch + 1;
+        heartbeat_received = true;
         voted_for = loc_id_;
         mtx_.unlock();
         Log_info("Converted to Candidate at epoch: %lu, by server: %lu", current_epoch, loc_id_);
@@ -363,9 +376,8 @@ namespace janus
         *f_ok = true;
         *vote_granted = false;
         Log_info("Received RequestVote from: %lu, with epoch: %lu, zxid: %lu, %lu, at: %lu", c_id, c_epoch, last_seen_epoch, last_seen_cmd_count, loc_id_);
-        mtx_.lock();
-
         auto last_seen_zxid = getLastSeenZxid();
+        mtx_.lock();
         *conflict_epoch = last_seen_zxid.first;
         *conflict_cmd_count = last_seen_zxid.second;
         // If the current epoch is less than the epoch of the candidate, do not vote
@@ -382,6 +394,7 @@ namespace janus
         // If the current epoch is less than the epoch of the candidate, update the current epoch and transition to follower
         if (c_epoch > current_epoch)
         {
+            Log_info("Changing epoch from %lu to %lu", current_epoch, c_epoch);
             current_epoch = c_epoch;
             voted_for = -1;
             state = ZABState::FOLLOWER;
@@ -401,6 +414,7 @@ namespace janus
         if (last_seen_epoch == last_seen_zxid.first && last_seen_cmd_count == last_seen_zxid.second)
         {
             voted_for = c_id;
+            Log_info("Changing epoch from %lu to %lu", current_epoch, c_epoch);
             current_epoch = c_epoch;
             *vote_granted = true;
             mtx_.unlock();
@@ -414,6 +428,7 @@ namespace janus
         {
             voted_for = c_id;
             current_epoch = c_epoch;
+            Log_info("Changing epoch from %lu to %lu", current_epoch, c_epoch);
             heartbeat_received = true;
             *vote_granted = false;
             mtx_.unlock();
@@ -426,6 +441,7 @@ namespace janus
         {
             voted_for = c_id;
             current_epoch = c_epoch;
+            Log_info("Changing epoch from %lu to %lu", current_epoch, c_epoch);
             heartbeat_received = true;
             *vote_granted = false;
             mtx_.unlock();
@@ -451,6 +467,7 @@ namespace janus
         mtx_.lock();
         if (l_epoch < current_epoch)
         {
+            *reply_epoch = current_epoch;
             mtx_.unlock();
             *f_ok = false;
             defer->reply();
@@ -458,24 +475,18 @@ namespace janus
         }
         if (l_epoch > current_epoch)
         {
+            Log_info("Changing epoch from %lu to %lu", current_epoch, l_epoch);
             current_epoch = l_epoch;
             state = ZABState::FOLLOWER;
             voted_for = l_id;
         }
-        // Akshat: Reason about this
         for (auto entry : logs)
         {
             auto zxid = make_pair(entry.epoch, entry.cmd_count);
-            if (zxid_log_index_map.find(zxid) != zxid_log_index_map.end())
-            {
-                mtx_.unlock();
-                *f_ok = false;
-                defer->reply();
-                return;
-            }
             commit_log.push_back(entry);
             zxid_commit_log_index_map[zxid] = log.size() - 1;
         }
+        *reply_epoch = current_epoch;
         mtx_.unlock();
         defer->reply();
         return;
@@ -488,7 +499,7 @@ namespace janus
                                       rrr::DeferredReply *defer)
     {
         *f_ok = true;
-        Log_info("Received Heartbeat from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
+        // Log_info("Received Heartbeat from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
         mtx_.lock();
         if (l_epoch < current_epoch)
         {
@@ -500,6 +511,7 @@ namespace janus
         }
         if (l_epoch > current_epoch)
         {
+            Log_info("Changing epoch from %lu to %lu", current_epoch, l_epoch);
             current_epoch = l_epoch;
             state = ZABState::FOLLOWER;
             // voted_for = -1;
@@ -532,6 +544,7 @@ namespace janus
         }
         if (l_epoch > current_epoch)
         {
+            Log_info("Changing epoch from %lu to %lu", current_epoch, l_epoch);
             current_epoch = l_epoch;
             state = ZABState::FOLLOWER;
             // Akshat: Reason about whether to set voted_for to -1 here
@@ -568,13 +581,14 @@ namespace janus
         }
         if (l_epoch > current_epoch)
         {
+            Log_info("Changing epoch from %lu to %lu", current_epoch, l_epoch);
             current_epoch = l_epoch;
             state = ZABState::FOLLOWER;
             voted_for = l_id;
         }
         *reply_epoch = current_epoch;
         Log_info("Accepted Commit from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
-        // Akshat: Reason about this
+        // Akshat: Handle the case where the commit is not in the log
         auto idx = zxid_log_index_map[{zxid_commit_epoch, zxid_commit_count}];
         auto entry = log[idx];
         commit_log.push_back(entry);

@@ -71,7 +71,6 @@ namespace janus
         // Also returns the zxid of the command that was started.
         bool Start(int svr, int cmd, pair<uint64_t, uint64_t> *zxid);
 
-        // Akshat: Check if wait is needed in further tests
         // Waits for at least n servers to commit index
         // If commit takes too long, gives up after a while.
         // If term has moved on since the given start term, also gives up.
@@ -79,7 +78,7 @@ namespace janus
         // -1 if it took too long for enough servers to commit
         // -2 if term changed
         // -3 if committed values for index differ
-        // int Wait(uint64_t index, int n, uint64_t epoch);
+        int Wait(pair<uint64_t, uint64_t> zxid, int n, uint64_t epoch);
 
         // Calls GetState() to specified server
         void GetState(int svr, bool *is_leader, uint64_t *epoch);

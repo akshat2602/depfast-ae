@@ -19,7 +19,7 @@ namespace janus
         auto proxies = rpc_par_proxies_[par_id];
         for (auto &p : proxies)
         {
-            Log_info("SendRequestVote: %lu", p.first);
+            // Log_info("SendRequestVote: %lu", p.first);
             if (p.first == site_id)
             {
                 continue;
@@ -36,7 +36,7 @@ namespace janus
                 fu->get_reply() >> vote_granted >> f_ok >> conflict_last_seen_zxid_epoch >> conflict_last_seen_zxid_count >> reply_epoch;
                 ev->conflict_last_seen_zxid_[p.first] = {conflict_last_seen_zxid_epoch, conflict_last_seen_zxid_count};
                 auto conflict_zxid = ev->conflict_last_seen_zxid_[p.first];
-                Log_info("RequestVote reply from %lu: vote_granted = %d, f_ok = %d, conflict_last_seen_zxid = %lu, %lu", p.first, vote_granted, f_ok, conflict_zxid.first, conflict_zxid.second);
+                // Log_info("RequestVote reply from %lu: vote_granted = %d, f_ok = %d, conflict_last_seen_zxid = %lu, %lu", p.first, vote_granted, f_ok, conflict_zxid.first, conflict_zxid.second);
                 if (f_ok && vote_granted)
                 {
                     Log_info("Vote granted from %lu", p.first);
@@ -57,6 +57,7 @@ namespace janus
                     // Mark the vote as conflict
                     ev->VoteYes(p.first);
                 }
+                ev->reply_epochs_[p.first] = reply_epoch;
             };
             Call_Async(proxy,
                        RequestVote,
@@ -79,14 +80,13 @@ namespace janus
         auto proxies = rpc_par_proxies_[par_id];
         for (auto &p : proxies)
         {
-            Log_info("SendHeartbeat: %lu", p.first);
             if (p.first == site_id)
             {
                 continue;
             }
             SaucrProxy *proxy = (SaucrProxy *)p.second;
             FutureAttr fuattr;
-            fuattr.callback = [ev](Future *fu)
+            fuattr.callback = [ev, p](Future *fu)
             {
                 bool_t f_ok;
                 uint64_t reply_epoch;
@@ -99,6 +99,7 @@ namespace janus
                 {
                     ev->VoteNo();
                 }
+                ev->reply_epochs_[p.first] = reply_epoch;
             };
             Call_Async(proxy,
                        Heartbeat,
@@ -126,12 +127,12 @@ namespace janus
             }
             SaucrProxy *proxy = (SaucrProxy *)p.second;
             FutureAttr fuattr;
-            fuattr.callback = [ev](Future *fu)
+            fuattr.callback = [ev, p](Future *fu)
             {
                 bool_t f_ok;
                 uint64_t reply_epoch;
                 fu->get_reply() >> f_ok >> reply_epoch;
-                Log_info("Proposal reply f_ok = %d", f_ok);
+                // Log_info("Proposal reply f_ok = %d", f_ok);
                 if (f_ok)
                 {
                     ev->VoteYes();
@@ -140,6 +141,7 @@ namespace janus
                 {
                     ev->VoteNo();
                 }
+                ev->reply_epochs_[p.first] = reply_epoch;
             };
             Call_Async(proxy,
                        Propose,
@@ -169,12 +171,11 @@ namespace janus
             }
             SaucrProxy *proxy = (SaucrProxy *)p.second;
             FutureAttr fuattr;
-            fuattr.callback = [ev](Future *fu)
+            fuattr.callback = [ev, p](Future *fu)
             {
                 bool_t f_ok;
                 uint64_t reply_epoch;
                 fu->get_reply() >> f_ok >> reply_epoch;
-                Log_info("Commit reply f_ok = %d", f_ok);
                 if (f_ok)
                 {
                     ev->VoteYes();
@@ -183,6 +184,7 @@ namespace janus
                 {
                     ev->VoteNo();
                 }
+                ev->reply_epochs_[p.first] = reply_epoch;
             };
             Call_Async(proxy,
                        Commit,
@@ -226,9 +228,10 @@ namespace janus
                 {
                     ev->VoteYes(p.first);
                 }
+                ev->reply_epochs_[p.first] = reply_epoch;
             };
-            Log_info("SendSync: %lu", p.first);
-            Log_info("Log size: %lu", logs[i].size());
+            // Log_info("SendSync: %lu", p.first);
+            // Log_info("Log size: %lu", logs[i].size());
             Call_Async(proxy,
                        SyncLogs,
                        l_id,

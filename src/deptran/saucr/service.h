@@ -31,6 +31,7 @@ namespace janus
             *vote_granted = false;
             *conflict_epoch = 0;
             *conflict_cmd_count = 0;
+            *reply_epoch = 0;
         }
 
         RpcHandler(Propose, 5,
@@ -41,6 +42,7 @@ namespace janus
                    uint64_t *, reply_epoch)
         {
             *f_ok = false;
+            *reply_epoch = 0;
         };
 
         RpcHandler(Commit, 6,
@@ -52,6 +54,7 @@ namespace janus
                    uint64_t *, reply_epoch)
         {
             *f_ok = false;
+            *reply_epoch = 0;
         };
 
         RpcHandler(Heartbeat, 4,
@@ -61,6 +64,7 @@ namespace janus
                    uint64_t *, reply_epoch)
         {
             *f_ok = false;
+            *reply_epoch = 0;
         };
 
         RpcHandler(SyncLogs, 5,
@@ -71,6 +75,7 @@ namespace janus
                    uint64_t *, reply_epoch)
         {
             *f_ok = false;
+            *reply_epoch = 0;
         };
     };
 } // namespace janus

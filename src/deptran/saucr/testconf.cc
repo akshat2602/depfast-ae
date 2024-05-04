@@ -209,6 +209,49 @@ namespace janus
         return count;
     }
 
+    int SaucrTestConfig::Wait(pair<uint64_t, uint64_t> zxid, int n, uint64_t epoch)
+    {
+        int nc = 0, i;
+        auto to = 10000; // 10 milliseconds
+        for (i = 0; i < 30; i++)
+        {
+            nc = NCommitted(zxid);
+            if (nc < 0)
+            {
+                return -3; // values differ
+            }
+            else if (nc >= n)
+            {
+                break;
+            }
+            Reactor::CreateSpEvent<TimeoutEvent>(to)->Wait();
+            if (to < 1000000)
+            {
+                to *= 2;
+            }
+            if (EpochMovedOn(epoch))
+            {
+                return -2; // term changed
+            }
+        }
+        if (i == 30)
+        {
+            return -1; // timeout
+        }
+        for (int i = 0; i < NSERVERS; i++)
+        {
+            // Return the committed value for the given zxid
+            auto it = committed_zxids[i].find(pair_to_string(zxid));
+            if (it != committed_zxids[i].end())
+            {
+                // Key found
+                auto idx = it->second;
+                return committed_cmds[i][idx];
+            }
+        }
+        verify(0);
+    }
+
     int SaucrTestConfig::OneLeader(int expected)
     {
         return waitOneLeader(true, expected);
