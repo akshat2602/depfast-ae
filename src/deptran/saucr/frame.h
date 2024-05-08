@@ -6,6 +6,7 @@
 #include "commo.h"
 #include "server.h"
 #include "coordinator.h"
+#include "service.h"
 
 namespace janus
 {
@@ -13,6 +14,8 @@ namespace janus
   class SaucrFrame : public Frame
   {
   private:
+    std::function<void()> restart_;
+    SaucrServiceImpl *service;
 #ifdef SAUCR_TEST_CORO
     static std::mutex saucr_test_mutex_;
     static uint16_t n_replicas_;
@@ -24,10 +27,13 @@ namespace janus
 #endif
     SaucrCommo *commo_ = nullptr;
     SaucrServer *svr_ = nullptr;
+    shared_ptr<Persister> persister = nullptr;
 
     SaucrFrame(int mode);
     virtual ~SaucrFrame();
 
+    void SetRestart(function<void()> restart) override;
+    void Restart() override;
     Coordinator *CreateCoordinator(cooid_t coo_id,
                                    Config *config,
                                    int benchmark,
@@ -36,6 +42,7 @@ namespace janus
                                    shared_ptr<TxnRegistry> txn_reg);
 
     TxLogServer *CreateScheduler() override;
+    TxLogServer *RecreateScheduler() override;
 
     Communicator *CreateCommo(PollMgr *poll = nullptr) override;
 

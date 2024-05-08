@@ -51,6 +51,9 @@ void ServerWorker::SetupBase() {
   tx_sched_->site_id_ = site_info_->id;
 //  Log_info("initialize site id: %d", (int) site_info_->id);
   sharding_->tx_sched_ = tx_sched_;
+  tx_frame_->SetRestart([this](){
+    RestartScheduler();
+  });
 
 	Log_info("Is it replicated: %d", config->IsReplicated());
   if (config->IsReplicated() &&
@@ -71,6 +74,39 @@ void ServerWorker::SetupBase() {
                                            tx_sched_,
                                            std::placeholders::_1));
   }
+}
+
+void ServerWorker::RestartScheduler() {
+  Log_info("Restarting scheduler of %d", site_info_->id);
+
+  // Shutdown old replication scheduler
+  auto old_tx_sched_ = tx_sched_;
+  tx_sched_->Shutdown();
+
+  // Recreate replication scheduler
+  auto config = Config::GetConfig();
+  tx_sched_ = tx_frame_->RecreateScheduler();
+  tx_sched_->txn_reg_ = tx_reg_;
+  tx_sched_->loc_id_ = site_info_->locale_id;
+  tx_sched_->site_id_ = site_info_->id;
+  tx_sched_->partition_id_ = site_info_->partition_id_;
+
+  tx_sched_->RegLearnerAction(old_tx_sched_->GetRegLearnerAction());
+  
+
+  if (tx_frame_) {
+    tx_sched_->commo_ = tx_commo_;
+    tx_commo_->rep_sched_ = rep_sched_;
+  }
+    std::shared_ptr<OneTimeJob> sp_j  = std::make_shared<OneTimeJob>(
+    [this]() { 
+      if (tx_sched_) {
+        tx_sched_->Setup();
+      }
+    }
+  );
+  svr_poll_mgr_->add(sp_j);
+  Log_info("Done with %d", site_info_->id);
 }
 
 void ServerWorker::PopTable() {

@@ -38,7 +38,8 @@ namespace janus
     {
         if (svr_ == nullptr)
         {
-            svr_ = new SaucrServer(this);
+            persister = make_shared<Persister>();
+            svr_ = new SaucrServer(this, persister);
         }
         else
         {
@@ -53,6 +54,20 @@ namespace janus
         n_replicas_++;
         saucr_test_mutex_.unlock();
 #endif
+        return svr_;
+    }
+
+    TxLogServer *SaucrFrame::RecreateScheduler()
+    {
+        if (svr_ != nullptr)
+        {
+            svr_ = new SaucrServer(this, persister);
+            service->svr_ = (SaucrServer *)svr_;
+        }
+        else
+        {
+            verify(0);
+        }
         return svr_;
     }
 
@@ -76,7 +91,8 @@ namespace janus
         switch (config->replica_proto_)
         {
         case MODE_SAUCR:
-            result.push_back(new SaucrServiceImpl(rep_sched));
+            service = new SaucrServiceImpl(rep_sched);
+            result.push_back(service);
             break;
         default:
             break;
@@ -94,6 +110,18 @@ namespace janus
         coord->n_replica_ = config->GetPartitionSize(site_info_->partition_id_);
         coord->loc_id_ = site_info_->locale_id;
         verify(coord->n_replica_ != 0);
+    }
+
+    void SaucrFrame::SetRestart(function<void()> restart)
+    {
+        Log_info("set restart function");
+        restart_ = restart;
+    }
+
+    void SaucrFrame::Restart()
+    {
+        verify(restart_ != nullptr);
+        (restart_)();
     }
 
 } // namespace janus
