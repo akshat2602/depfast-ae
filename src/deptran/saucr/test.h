@@ -31,7 +31,7 @@ namespace janus
         int testRejoin(void);
         int testConcurrentStarts(void);
         int testBackup(void);
-        int testCount(void);
+        int testBasicPersistence(void);
 
         void wait(uint64_t microseconds);
     };

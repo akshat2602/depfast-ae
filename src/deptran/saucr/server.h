@@ -6,9 +6,69 @@
 #include "commo.h"
 #include "../scheduler.h"
 #include "../classic/tpc_command.h"
+#include "persister.h"
 
 namespace janus
 {
+
+    class StateMarshallable : public Marshallable
+    {
+    public:
+        StateMarshallable() : Marshallable(MarshallDeputy::CMD_STATE) {}
+        uint64_t current_epoch;
+        int64_t voted_for;
+
+        vector<LogEntry> commit_log;
+        vector<LogEntry> log;
+
+        Marshal &ToMarshal(Marshal &m) const override
+        {
+            int32_t sz = commit_log.size();
+            int32_t sz1 = log.size();
+            m << sz;
+            for (const LogEntry &entry : commit_log)
+            {
+                m << entry.cmd_count;
+                m << entry.data;
+                m << entry.epoch;
+            }
+            m << sz1;
+            for (const LogEntry &entry : log)
+            {
+                m << entry.cmd_count;
+                m << entry.data;
+                m << entry.epoch;
+            }
+            m << voted_for;
+            m << current_epoch;
+            return m;
+        }
+
+        Marshal &FromMarshal(Marshal &m) override
+        {
+            int32_t sz;
+            m >> sz;
+            commit_log.resize(sz, LogEntry{});
+            for (LogEntry &entry : commit_log)
+            {
+                m >> entry.cmd_count;
+                m >> entry.data;
+                m >> entry.epoch;
+            }
+            int32_t sz1;
+            m >> sz1;
+            log.resize(sz1, LogEntry{});
+            for (LogEntry &entry : log)
+            {
+                m >> entry.cmd_count;
+                m >> entry.data;
+                m >> entry.epoch;
+            }
+            m >> voted_for;
+            m >> current_epoch;
+            return m;
+        }
+    };
 
     enum ZABState
     {
@@ -29,6 +89,7 @@ namespace janus
         map<pair<uint64_t, uint64_t>, uint64_t> zxid_log_index_map;
         map<pair<uint64_t, uint64_t>, uint64_t> zxid_commit_log_index_map;
         uint64_t cmd_count = 1;
+        bool_t stop_coroutine = false;
 
         uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL;
 
@@ -48,6 +109,8 @@ namespace janus
         bool_t sendHeartbeats();
         bool_t sendProposal(LogEntry &entry);
         bool_t commitProposal(LogEntry &entry);
+        void PersistState();
+        void ReadPersistedState();
 
 #ifdef SAUCR_TEST_CORO
         int commit_timeout = 300000;
@@ -58,6 +121,7 @@ namespace janus
 #endif
         // metrics
     public:
+        shared_ptr<Persister> persister;
         map<uint64_t, Timer> start_times;
         /* Client request handlers */
 
@@ -113,12 +177,13 @@ namespace janus
         /* Do not modify this class below here */
 
     public:
-        SaucrServer(Frame *frame);
+        SaucrServer(Frame *frame, shared_ptr<Persister> persister_);
         ~SaucrServer();
 
     private:
         bool disconnected_ = false;
         void Setup();
+        void Shutdown();
 
     public:
         void Disconnect(const bool disconnect = true);

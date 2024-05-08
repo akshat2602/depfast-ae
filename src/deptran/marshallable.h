@@ -43,7 +43,8 @@ class MarshallDeputy {
 		CMD_BLK_PXS = 9,
     CMD_NOOP = 10,
     CMD_TPC_BATCH = 11,
-    CMD_ZAB_COMMIT = 12
+    CMD_ZAB_COMMIT = 12,
+    CMD_STATE = 13,
   };
   /**
    * This should be called by the rpc layer.

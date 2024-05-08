@@ -123,6 +123,11 @@ namespace janus
         // Reconnects disconnected server
         void Reconnect(int svr);
 
+        void Restart(int svr)
+        {
+            return replicas[svr]->Restart();
+        }
+
         // Returns number of disconnected servers
         int NDisconnected(void);
 

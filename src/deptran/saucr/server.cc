@@ -10,16 +10,39 @@ namespace janus
                                                             {
                                                                 return new ZABMarshallable;
                                                             });
+    static int volatile x2 = MarshallDeputy::RegInitializer(MarshallDeputy::CMD_STATE,
+                                                            []() -> Marshallable *
+                                                            {
+                                                                return new StateMarshallable;
+                                                            });
 
-    SaucrServer::SaucrServer(Frame *frame)
+    SaucrServer::SaucrServer(Frame *frame, shared_ptr<Persister> persister_)
     {
+        persister = persister_;
         frame_ = frame;
     }
 
     SaucrServer::~SaucrServer() {}
 
+    void SaucrServer::Shutdown()
+    {
+        this->mtx_.lock();
+        this->stop_coroutine = true;
+        this->mtx_.unlock();
+        Log_debug("Shutting down");
+        auto ev = Reactor::CreateSpEvent<TimeoutEvent>(2500000);
+        ev->Wait();
+        this->PersistState();
+        return;
+    }
+
     void SaucrServer::Setup()
     {
+        size_t temp = this->persister->SaucrStateSize();
+        if (temp != -1)
+        {
+            this->ReadPersistedState();
+        }
         RunSaucrServer();
         ProposalSender();
     }
@@ -50,6 +73,7 @@ namespace janus
         cmd_count++;
         // Log_info("Unlocking mutex");
         this->mtx_.unlock();
+        this->PersistState();
         Log_info("Starting command at epoch: %lu, cmd_count: %lu", entry.epoch, entry.cmd_count);
         return true;
     }
@@ -64,6 +88,39 @@ namespace janus
     }
 #endif
 
+    void SaucrServer::PersistState()
+    {
+        auto curr_saucrstate = make_shared<StateMarshallable>();
+        // Log_debug("Locking mutex");
+        this->mtx_.lock();
+        curr_saucrstate->log = this->log;
+        curr_saucrstate->commit_log = this->commit_log;
+        curr_saucrstate->voted_for = this->voted_for;
+        curr_saucrstate->current_epoch = this->current_epoch;
+        // Log_debug("Unlocking mutex");
+        this->mtx_.unlock();
+        shared_ptr<Marshallable> m = curr_saucrstate;
+        this->persister->SaveSaucrState(m);
+        return;
+    }
+
+    void SaucrServer::ReadPersistedState()
+    {
+        auto curr_saucrstate = make_shared<StateMarshallable>();
+        shared_ptr<Marshallable> m = curr_saucrstate;
+        m = this->persister->ReadSaucrState();
+        curr_saucrstate = dynamic_pointer_cast<StateMarshallable>(m);
+        // Log_debug("Locking mutex");
+        this->mtx_.lock();
+        this->log = curr_saucrstate->log;
+        this->commit_log = curr_saucrstate->commit_log;
+        this->voted_for = curr_saucrstate->voted_for;
+        this->current_epoch = curr_saucrstate->current_epoch;
+        // Log_debug("Unlocking mutex");
+        this->mtx_.unlock();
+        return;
+    }
+
     // Check if there are any new proposals to propose
     // To do this, get the last seen zxid and check if there are any new commands to propose,
     // if there are, propose them only if their epoch is the same as the current epoch
@@ -72,7 +129,7 @@ namespace janus
     {
         Coroutine::CreateRun([this]()
                              {
-            while(true)
+            while(!this->stop_coroutine)
             {
                 bool is_leader;
                 uint64_t temp_epoch;
@@ -99,6 +156,7 @@ namespace janus
                                 Log_info("Committed Proposal");
                             }
                         }
+                        this->PersistState();
                     }
                 }
 
@@ -110,7 +168,7 @@ namespace janus
     {
         Coroutine::CreateRun([this]()
                              {
-        while (true)
+        while (!this->stop_coroutine)
         {
             // Get the state of the server to determine what to do next
             mtx_.lock();
@@ -226,6 +284,7 @@ namespace janus
                 current_epoch = reply_epoch;
                 heartbeat_received = false;
                 mtx_.unlock();
+                this->PersistState();
                 return ev->No();
             }
         }
@@ -253,6 +312,7 @@ namespace janus
                     Log_info("Changing epoch from %lu to %lu", current_epoch, reply_epoch);
                     current_epoch = reply_epoch;
                     mtx_.unlock();
+                    this->PersistState();
                     return ev->No();
                 }
             }
@@ -268,6 +328,7 @@ namespace janus
                 Log_info("Changing epoch from %lu to %lu", current_epoch, reply_epoch);
                 current_epoch = reply_epoch;
                 mtx_.unlock();
+                this->PersistState();
                 return ev->No();
             }
         }
@@ -288,6 +349,7 @@ namespace janus
                 Log_info("Changing epoch from %lu to %lu", current_epoch, reply_epoch);
                 current_epoch = reply_epoch;
                 mtx_.unlock();
+                this->PersistState();
                 return ev->No();
             }
         }
@@ -312,6 +374,7 @@ namespace janus
                 Log_info("Changing epoch from %lu to %lu", current_epoch, reply_epoch);
                 current_epoch = reply_epoch;
                 mtx_.unlock();
+                this->PersistState();
                 return ev->No();
             }
         }
@@ -327,6 +390,7 @@ namespace janus
         heartbeat_received = true;
         voted_for = loc_id_;
         mtx_.unlock();
+        this->PersistState();
         Log_info("Converted to Candidate at epoch: %lu, by server: %lu", current_epoch, loc_id_);
     }
 
@@ -358,6 +422,7 @@ namespace janus
             {
                 Log_info("Committed Noop Command");
             }
+            this->PersistState();
         }
     }
 
@@ -373,6 +438,13 @@ namespace janus
                                         uint64_t *reply_epoch,
                                         rrr::DeferredReply *defer)
     {
+        if (this->stop_coroutine)
+        {
+            Log_info("REPLY SHUTTING DOWN");
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
         *f_ok = true;
         *vote_granted = false;
         Log_info("Received RequestVote from: %lu, with epoch: %lu, zxid: %lu, %lu, at: %lu", c_id, c_epoch, last_seen_epoch, last_seen_cmd_count, loc_id_);
@@ -406,6 +478,7 @@ namespace janus
             *vote_granted = false;
             mtx_.unlock();
             Log_info("Did not vote for: %lu, because already voted for: %lu at server: %lu", c_id, voted_for, loc_id_);
+            this->PersistState();
             defer->reply();
             return;
         }
@@ -419,6 +492,7 @@ namespace janus
             *vote_granted = true;
             mtx_.unlock();
             Log_info("Voted for: %lu, because last_seen_epoch and last_seen_cmd_count are equal", c_id);
+            this->PersistState();
             defer->reply();
             return;
         }
@@ -433,6 +507,7 @@ namespace janus
             *vote_granted = false;
             mtx_.unlock();
             Log_info("Voted for: %lu, because last_seen_cmd_count is greater", c_id);
+            this->PersistState();
             defer->reply();
             return;
         }
@@ -446,6 +521,7 @@ namespace janus
             *vote_granted = false;
             mtx_.unlock();
             Log_info("Voted for: %lu, because last_seen_epoch is greater", c_id);
+            this->PersistState();
             defer->reply();
             return;
         }
@@ -462,6 +538,13 @@ namespace janus
                                  uint64_t *reply_epoch,
                                  rrr::DeferredReply *defer)
     {
+        if (this->stop_coroutine)
+        {
+            Log_info("REPLY SHUTTING DOWN");
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
         *f_ok = true;
         Log_info("Received Sync from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
         mtx_.lock();
@@ -488,6 +571,7 @@ namespace janus
         }
         *reply_epoch = current_epoch;
         mtx_.unlock();
+        this->PersistState();
         defer->reply();
         return;
     }
@@ -498,6 +582,13 @@ namespace janus
                                       uint64_t *reply_epoch,
                                       rrr::DeferredReply *defer)
     {
+        if (this->stop_coroutine)
+        {
+            Log_info("REPLY SHUTTING DOWN");
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
         *f_ok = true;
         // Log_info("Received Heartbeat from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
         mtx_.lock();
@@ -520,6 +611,7 @@ namespace janus
         *reply_epoch = current_epoch;
         heartbeat_received = true;
         mtx_.unlock();
+        this->PersistState();
         defer->reply();
         return;
     }
@@ -531,6 +623,13 @@ namespace janus
                                     uint64_t *reply_epoch,
                                     rrr::DeferredReply *defer)
     {
+        if (this->stop_coroutine)
+        {
+            Log_info("REPLY SHUTTING DOWN");
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
         *f_ok = true;
         Log_info("Received Proposal from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
         mtx_.lock();
@@ -556,6 +655,7 @@ namespace janus
         log.push_back(entry);
         zxid_log_index_map[zxid] = log.size() - 1;
         mtx_.unlock();
+        this->PersistState();
         defer->reply();
         return;
     }
@@ -568,6 +668,13 @@ namespace janus
                                    uint64_t *reply_epoch,
                                    rrr::DeferredReply *defer)
     {
+        if (this->stop_coroutine)
+        {
+            Log_info("REPLY SHUTTING DOWN");
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
         *f_ok = true;
         Log_info("Received Commit from: %lu, with epoch: %lu at: %lu", l_id, l_epoch, loc_id_);
         mtx_.lock();
@@ -602,6 +709,7 @@ namespace janus
             Log_info("Executing command");
             app_next_(*cmd);
         }
+        this->PersistState();
         defer->reply();
         return;
     }

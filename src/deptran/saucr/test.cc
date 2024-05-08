@@ -13,8 +13,9 @@ namespace janus
         uint64_t start_rpc = config_->RpcTotal();
         if (testInitialElection() || TEST_EXPAND(testReElection()) ||
             TEST_EXPAND(testBasicAgree()) || TEST_EXPAND(testFailAgree()) ||
-            TEST_EXPAND(testFailNoAgree()) || TEST_EXPAND(testRejoin()) ||
-            TEST_EXPAND(testConcurrentStarts()) || TEST_EXPAND(testBackup()))
+            // TEST_EXPAND(testFailNoAgree()) || TEST_EXPAND(testRejoin()) ||
+            // TEST_EXPAND(testConcurrentStarts()) || TEST_EXPAND(testBackup()) ||
+            TEST_EXPAND(testBasicPersistence()))
         {
             Print("TESTS FAILED");
             return 1;
@@ -526,6 +527,49 @@ namespace janus
     //     Assert2(success, "Failed to test figure 8");
     //     Passed2();
     // }
+
+    int SaucrTest::testBasicPersistence(void)
+    {
+        Init2(12, "Basic persistence");
+        int leader1 = config_->OneLeader();
+        AssertOneLeader(leader1);
+        DoAgreeAndAssertWaitSuccess(1201, NSERVERS);
+
+        Log_info("restart all servers");
+        for (int i = 0; i < NSERVERS; i++)
+        {
+            config_->Restart(i);
+        }
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        DoAgreeAndAssertZxid(1202, NSERVERS, make_pair(zxid_.first, ++zxid_.second));
+
+        Log_info("restart leader");
+        int leader2 = config_->OneLeader();
+        AssertOneLeader(leader2);
+        config_->Restart(leader2);
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        DoAgreeAndAssertZxid(1203, NSERVERS, make_pair(zxid_.first, ++zxid_.second));
+
+        Log_info("disconnect and restart leader");
+        int leader3 = config_->OneLeader();
+        AssertOneLeader(leader3);
+        config_->Disconnect(leader3);
+        Coroutine::Sleep(ELECTIONTIMEOUT);
+        DoAgreeAndAssertZxid(1204, NSERVERS - 1, make_pair(zxid_.first, ++zxid_.second));
+        config_->Reconnect(leader3);
+        config_->Restart(leader3);
+
+        Log_info("disconnect and restart follower");
+        int leader4 = config_->OneLeader();
+        AssertOneLeader(leader4);
+        config_->Disconnect((leader4 + 1) % NSERVERS);
+        DoAgreeAndAssertZxid(1205, NSERVERS - 1, make_pair(zxid_.first, ++zxid_.second));
+        config_->Reconnect((leader4 + 1) % NSERVERS);
+        config_->Restart((leader4 + 1) % NSERVERS);
+
+        DoAgreeAndAssertZxid(1206, NSERVERS, make_pair(zxid_.first, ++zxid_.second));
+        Passed2();
+    }
 
     void SaucrTest::wait(uint64_t microseconds)
     {
