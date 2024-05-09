@@ -4,7 +4,8 @@ abstract service Saucr {
     defer Propose(
         uint64_t l_id,
         uint64_t l_epoch,
-        LogEntry entry |
+        LogEntry entry,
+        uint64_t saucr_mode |
         bool_t f_ok,
         uint64_t reply_epoch
     );
@@ -13,14 +14,16 @@ abstract service Saucr {
         uint64_t l_id,
         uint64_t l_epoch,
         uint64_t zxid_commit_epoch,
-        uint64_t zxid_commit_count |
+        uint64_t zxid_commit_count,
+        uint64_t saucr_mode |
         bool_t f_ok,
         uint64_t reply_epoch
     );
 
     defer Heartbeat(
         uint64_t l_id,
-        uint64_t l_epoch |
+        uint64_t l_epoch,
+        uint64_t saucr_mode |
         bool_t f_ok,
         uint64_t reply_epoch
     );
@@ -29,7 +32,8 @@ abstract service Saucr {
         uint64_t c_id,
         uint64_t c_epoch,
         uint64_t last_seen_epoch,
-        uint64_t last_seen_cmd_count |
+        uint64_t last_seen_cmd_count,
+        uint64_t saucr_mode |
         bool_t f_ok,
         bool_t vote_granted,
         uint64_t conflict_epoch,
@@ -40,7 +44,8 @@ abstract service Saucr {
     defer SyncLogs(
         uint64_t l_id,
         uint64_t l_epoch,
-        vector<LogEntry> logs |
+        vector<LogEntry> logs,
+        uint64_t saucr_mode |
         bool_t f_ok,
         uint64_t reply_epoch
     );

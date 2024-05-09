@@ -12,7 +12,8 @@ namespace janus
                                                                       siteid_t site_id,
                                                                       uint64_t c_id,
                                                                       uint64_t c_epoch,
-                                                                      pair<uint64_t, uint64_t> last_seen_zxid)
+                                                                      pair<uint64_t, uint64_t> last_seen_zxid,
+                                                                      uint64_t saucr_mode)
     {
         Log_info("Request vote sending from %lu", site_id);
         auto ev = Reactor::CreateSpEvent<SaucrNewLeaderQuorumEvent>();
@@ -65,6 +66,7 @@ namespace janus
                        c_epoch,
                        last_seen_zxid.first,
                        last_seen_zxid.second,
+                       saucr_mode,
                        fuattr);
         }
         return ev;
@@ -73,7 +75,8 @@ namespace janus
     shared_ptr<SaucrBaseQuorumEvent> SaucrCommo::SendHeartbeat(parid_t par_id,
                                                                siteid_t site_id,
                                                                uint64_t l_id,
-                                                               uint64_t l_epoch)
+                                                               uint64_t l_epoch,
+                                                               uint64_t saucr_mode)
     {
         Log_info("Heartbeat sending from %lu", site_id);
         auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>(NSERVERS, ceil(NSERVERS / 2));
@@ -105,6 +108,7 @@ namespace janus
                        Heartbeat,
                        l_id,
                        l_epoch,
+                       saucr_mode,
                        fuattr);
         }
         return ev;
@@ -114,7 +118,8 @@ namespace janus
                                                               siteid_t site_id,
                                                               uint64_t l_id,
                                                               uint64_t l_epoch,
-                                                              LogEntry &entry)
+                                                              LogEntry &entry,
+                                                              uint64_t saucr_mode)
     {
         Log_info("Proposal sending from %lu", site_id);
         auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>(NSERVERS, ceil(NSERVERS / 2));
@@ -148,6 +153,7 @@ namespace janus
                        l_id,
                        l_epoch,
                        entry,
+                       saucr_mode,
                        fuattr);
         }
         return ev;
@@ -158,7 +164,8 @@ namespace janus
                                                             uint64_t l_id,
                                                             uint64_t l_epoch,
                                                             uint64_t zxid_commit_epoch,
-                                                            uint64_t zxid_commit_count)
+                                                            uint64_t zxid_commit_count,
+                                                            uint64_t saucr_mode)
     {
         Log_info("Commit sending from %lu", site_id);
         auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>(NSERVERS, ceil(NSERVERS / 2));
@@ -192,6 +199,7 @@ namespace janus
                        l_epoch,
                        zxid_commit_epoch,
                        zxid_commit_count,
+                       saucr_mode,
                        fuattr);
         }
         return ev;
@@ -202,7 +210,8 @@ namespace janus
                               uint64_t l_id,
                               uint64_t l_epoch,
                               shared_ptr<SaucrNewLeaderQuorumEvent> ev,
-                              vector<vector<LogEntry>> &logs)
+                              vector<vector<LogEntry>> &logs,
+                              uint64_t saucr_mode)
     {
         Log_info("Sync sending from %lu", site_id);
         auto proxies = rpc_par_proxies_[par_id];
@@ -237,6 +246,7 @@ namespace janus
                        l_id,
                        l_epoch,
                        logs[i],
+                       saucr_mode,
                        fuattr);
         }
     }

@@ -270,7 +270,7 @@ namespace janus
 
     bool_t SaucrServer::sendHeartbeats()
     {
-        auto ev = commo()->SendHeartbeat(partition_id_, loc_id_, loc_id_, current_epoch);
+        auto ev = commo()->SendHeartbeat(partition_id_, loc_id_, loc_id_, current_epoch, saucr_state);
         ev->Wait(20000);
         for (auto reply_epoch : ev->reply_epochs_)
         {
@@ -294,13 +294,13 @@ namespace janus
     bool_t SaucrServer::requestVotes()
     {
         auto last_seen_zxid = getLastSeenZxid();
-        auto ev = commo()->SendRequestVote(partition_id_, loc_id_, loc_id_, current_epoch, last_seen_zxid);
+        auto ev = commo()->SendRequestVote(partition_id_, loc_id_, loc_id_, current_epoch, last_seen_zxid, saucr_state);
         ev->Wait(20000);
         if (ev->n_voted_conflict_ > 0)
         {
             Log_info("Received conflict votes");
             auto syncLog = createSyncLogs(ev);
-            commo()->SendSync(partition_id_, loc_id_, loc_id_, current_epoch, ev, syncLog);
+            commo()->SendSync(partition_id_, loc_id_, loc_id_, current_epoch, ev, syncLog, saucr_state);
             ev->Wait(20000);
             for (auto reply_epoch : ev->reply_epochs_)
             {
@@ -337,7 +337,7 @@ namespace janus
 
     bool_t SaucrServer::sendProposal(LogEntry &entry)
     {
-        auto ev = commo()->SendProposal(partition_id_, loc_id_, loc_id_, current_epoch, entry);
+        auto ev = commo()->SendProposal(partition_id_, loc_id_, loc_id_, current_epoch, entry, saucr_state);
         ev->Wait(20000);
         for (auto reply_epoch : ev->reply_epochs_)
         {
@@ -361,7 +361,7 @@ namespace janus
     {
         commit_log.push_back(entry);
         zxid_commit_log_index_map[{entry.epoch, entry.cmd_count}] = commit_log.size() - 1;
-        auto ev = commo()->SendCommit(partition_id_, loc_id_, loc_id_, current_epoch, entry.epoch, entry.cmd_count);
+        auto ev = commo()->SendCommit(partition_id_, loc_id_, loc_id_, current_epoch, entry.epoch, entry.cmd_count, saucr_state);
         ev->Wait(20000);
         // Check if any server has rejected the commit due to a epoch conflict
         for (auto reply_epoch : ev->reply_epochs_)
@@ -431,6 +431,7 @@ namespace janus
                                         const uint64_t &c_epoch,
                                         const uint64_t &last_seen_epoch,
                                         const uint64_t &last_seen_cmd_count,
+                                        const uint64_t &saucr_mode,
                                         uint64_t *conflict_epoch,
                                         uint64_t *conflict_cmd_count,
                                         bool_t *vote_granted,
@@ -538,6 +539,7 @@ namespace janus
     void SaucrServer::HandleSync(const uint64_t &l_id,
                                  const uint64_t &l_epoch,
                                  const vector<LogEntry> &logs,
+                                 const uint64_t &saucr_mode,
                                  bool_t *f_ok,
                                  uint64_t *reply_epoch,
                                  rrr::DeferredReply *defer)
@@ -583,6 +585,7 @@ namespace janus
 
     void SaucrServer::HandleHeartbeat(const uint64_t &l_id,
                                       const uint64_t &l_epoch,
+                                      const uint64_t &saucr_mode,
                                       bool_t *f_ok,
                                       uint64_t *reply_epoch,
                                       rrr::DeferredReply *defer)
@@ -625,6 +628,7 @@ namespace janus
     void SaucrServer::HandlePropose(const uint64_t &l_id,
                                     const uint64_t &l_epoch,
                                     const LogEntry &entry,
+                                    const uint64_t &saucr_mode,
                                     bool_t *f_ok,
                                     uint64_t *reply_epoch,
                                     rrr::DeferredReply *defer)
@@ -671,6 +675,7 @@ namespace janus
                                    const uint64_t &l_epoch,
                                    const uint64_t &zxid_commit_epoch,
                                    const uint64_t &zxid_commit_count,
+                                   const uint64_t &saucr_mode,
                                    bool_t *f_ok,
                                    uint64_t *reply_epoch,
                                    rrr::DeferredReply *defer)
