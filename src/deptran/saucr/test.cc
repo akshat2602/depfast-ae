@@ -13,9 +13,10 @@ namespace janus
         uint64_t start_rpc = config_->RpcTotal();
         if (testInitialElection() || TEST_EXPAND(testReElection()) ||
             TEST_EXPAND(testBasicAgree()) || TEST_EXPAND(testFailAgree()) ||
-            // TEST_EXPAND(testFailNoAgree()) || TEST_EXPAND(testRejoin()) ||
-            // TEST_EXPAND(testConcurrentStarts()) || TEST_EXPAND(testBackup()) ||
-            TEST_EXPAND(testBasicPersistence()))
+            TEST_EXPAND(testFailNoAgree()) || TEST_EXPAND(testRejoin()) ||
+            TEST_EXPAND(testConcurrentStarts()) || TEST_EXPAND(testBackup()) ||
+            TEST_EXPAND(testBasicPersistence()) || TEST_EXPAND(testMorePersistence1()) ||
+            TEST_EXPAND(testMorePersistence2()))
         {
             Print("TESTS FAILED");
             return 1;
@@ -541,21 +542,29 @@ namespace janus
             config_->Restart(i);
         }
         Coroutine::Sleep(ELECTIONTIMEOUT);
-        DoAgreeAndAssertZxid(1202, NSERVERS, make_pair(zxid_.first, ++zxid_.second));
+        int epoch = config_->OneEpoch();
+        zxid_ = make_pair(epoch, 1);
+        Log_info("try to commit a few commands after restart");
+        DoAgreeAndAssertZxid(1202, NSERVERS, make_pair(zxid_.first, zxid_.second++));
 
         Log_info("restart leader");
         int leader2 = config_->OneLeader();
         AssertOneLeader(leader2);
         config_->Restart(leader2);
         Coroutine::Sleep(ELECTIONTIMEOUT);
-        DoAgreeAndAssertZxid(1203, NSERVERS, make_pair(zxid_.first, ++zxid_.second));
+        epoch = config_->OneEpoch();
+        zxid_ = make_pair(epoch, 1);
+        DoAgreeAndAssertZxid(1203, NSERVERS, make_pair(zxid_.first, zxid_.second++));
 
         Log_info("disconnect and restart leader");
         int leader3 = config_->OneLeader();
         AssertOneLeader(leader3);
         config_->Disconnect(leader3);
         Coroutine::Sleep(ELECTIONTIMEOUT);
-        DoAgreeAndAssertZxid(1204, NSERVERS - 1, make_pair(zxid_.first, ++zxid_.second));
+        epoch = config_->OneEpoch();
+        zxid_ = make_pair(epoch, 1);
+
+        DoAgreeAndAssertZxid(1204, NSERVERS - 1, make_pair(zxid_.first, zxid_.second++));
         config_->Reconnect(leader3);
         config_->Restart(leader3);
 
@@ -563,11 +572,111 @@ namespace janus
         int leader4 = config_->OneLeader();
         AssertOneLeader(leader4);
         config_->Disconnect((leader4 + 1) % NSERVERS);
-        DoAgreeAndAssertZxid(1205, NSERVERS - 1, make_pair(zxid_.first, ++zxid_.second));
+        DoAgreeAndAssertZxid(1205, NSERVERS - 1, make_pair(zxid_.first, zxid_.second++));
         config_->Reconnect((leader4 + 1) % NSERVERS);
         config_->Restart((leader4 + 1) % NSERVERS);
 
-        DoAgreeAndAssertZxid(1206, NSERVERS, make_pair(zxid_.first, ++zxid_.second));
+        DoAgreeAndAssertZxid(1206, NSERVERS, make_pair(zxid_.first, zxid_.second++));
+        Passed2();
+    }
+
+    int SaucrTest::testMorePersistence1(void)
+    {
+        Init2(13, "More persistence - part 1");
+        for (int iter = 0; iter < 5; iter++)
+        {
+            int leader1 = config_->OneLeader();
+            AssertOneLeader(leader1);
+            if (config_->GetLastCommittedZxid().first != config_->OneEpoch())
+            {
+                zxid_ = make_pair(config_->OneEpoch(), 1);
+            }
+
+            DoAgreeAndAssertZxid(1301 + (10 * iter), NSERVERS, make_pair(zxid_.first, zxid_.second++));
+
+            config_->Disconnect((leader1 + 1) % NSERVERS);
+            config_->Disconnect((leader1 + 2) % NSERVERS);
+            DoAgreeAndAssertZxid(1302 + (10 * iter), NSERVERS - 2, make_pair(zxid_.first, zxid_.second++));
+
+            config_->Disconnect(leader1 % NSERVERS);
+            config_->Disconnect((leader1 + 3) % NSERVERS);
+            config_->Disconnect((leader1 + 4) % NSERVERS);
+
+            config_->Reconnect((leader1 + 1) % NSERVERS);
+            config_->Reconnect((leader1 + 2) % NSERVERS);
+            config_->Restart((leader1 + 1) % NSERVERS);
+            config_->Restart((leader1 + 2) % NSERVERS);
+
+            config_->Reconnect((leader1 + 3) % NSERVERS);
+            config_->Restart((leader1 + 3) % NSERVERS);
+            Coroutine::Sleep(ELECTIONTIMEOUT);
+
+            int epoch = config_->OneEpoch();
+            zxid_ = make_pair(epoch, 1);
+
+            DoAgreeAndAssertZxid(1303 + (10 * iter), NSERVERS - 2, make_pair(zxid_.first, zxid_.second++));
+            config_->Reconnect(leader1 % NSERVERS);
+            config_->Restart(leader1 % NSERVERS);
+            config_->Reconnect((leader1 + 4) % NSERVERS);
+            config_->Restart((leader1 + 4) % NSERVERS);
+        }
+        int leader1 = config_->OneLeader();
+        AssertOneLeader(leader1);
+        if (config_->GetLastCommittedZxid().first != config_->OneEpoch())
+        {
+            zxid_ = make_pair(config_->OneEpoch(), 1);
+        }
+        DoAgreeAndAssertZxid(1360, NSERVERS, make_pair(zxid_.first, zxid_.second++));
+        Passed2();
+    }
+
+    int SaucrTest::testMorePersistence2(void)
+    {
+        Init2(14, "More persistence - part 2");
+        for (int iter = 0; iter < 5; iter++)
+        {
+            int leader1 = config_->OneLeader();
+            AssertOneLeader(leader1);
+            if (config_->GetLastCommittedZxid().first != config_->OneEpoch())
+            {
+                zxid_ = make_pair(config_->OneEpoch(), 1);
+            }
+            DoAgreeAndAssertZxid(1401 + (10 * iter), NSERVERS, make_pair(zxid_.first, zxid_.second++));
+
+            config_->Disconnect((leader1 + 1) % NSERVERS);
+            config_->Disconnect((leader1 + 2) % NSERVERS);
+            DoAgreeAndAssertZxid(1402 + (10 * iter), NSERVERS - 2, make_pair(zxid_.first, zxid_.second++));
+
+            config_->Disconnect(leader1 % NSERVERS);
+            config_->Disconnect((leader1 + 3) % NSERVERS);
+            config_->Disconnect((leader1 + 4) % NSERVERS);
+
+            config_->Reconnect((leader1 + 1) % NSERVERS);
+            config_->Restart((leader1 + 1) % NSERVERS);
+            config_->Reconnect((leader1 + 2) % NSERVERS);
+            config_->Restart((leader1 + 2) % NSERVERS);
+
+            config_->Reconnect(leader1 % NSERVERS);
+            config_->Restart(leader1 % NSERVERS);
+            Coroutine::Sleep(ELECTIONTIMEOUT);
+
+            int epoch = config_->OneEpoch();
+            zxid_ = make_pair(epoch, 1);
+
+            DoAgreeAndAssertZxid(1403 + (10 * iter), NSERVERS - 2, make_pair(zxid_.first, zxid_.second++));
+
+            config_->Reconnect((leader1 + 3) % NSERVERS);
+            config_->Restart((leader1 + 3) % NSERVERS);
+            config_->Reconnect((leader1 + 4) % NSERVERS);
+            config_->Restart((leader1 + 4) % NSERVERS);
+        }
+        int leader1 = config_->OneLeader();
+        AssertOneLeader(leader1);
+        if (config_->GetLastCommittedZxid().first != config_->OneEpoch())
+        {
+            zxid_ = make_pair(config_->OneEpoch(), 1);
+        }
+        DoAgreeAndAssertZxid(1460, NSERVERS, make_pair(zxid_.first, zxid_.second++));
         Passed2();
     }
 

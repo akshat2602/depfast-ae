@@ -336,11 +336,22 @@ namespace janus
 
     uint64_t SaucrTestConfig::OneEpoch(void)
     {
+        // Do not consider disconnected servers
         uint64_t epoch, curEpoch;
         bool isLeader;
-        SaucrTestConfig::replicas[0]->svr_->GetState(&isLeader, &epoch);
+        // Get the epoch of the first connected server
+        for (int i = 0; i < NSERVERS; i++)
+        {
+            if (!SaucrTestConfig::replicas[i]->svr_->IsDisconnected())
+            {
+                SaucrTestConfig::replicas[i]->svr_->GetState(&isLeader, &epoch);
+                break;
+            }
+        }
         for (int i = 1; i < NSERVERS; i++)
         {
+            if (SaucrTestConfig::replicas[i]->svr_->IsDisconnected())
+                continue;
             SaucrTestConfig::replicas[i]->svr_->GetState(&isLeader, &curEpoch);
             if (curEpoch != epoch)
             {

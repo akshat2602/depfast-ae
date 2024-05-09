@@ -442,6 +442,10 @@ namespace janus
         {
             Log_info("REPLY SHUTTING DOWN");
             *f_ok = false;
+            *vote_granted = false;
+            *conflict_epoch = 0;
+            *conflict_cmd_count = 0;
+            *reply_epoch = 0;
             defer->reply();
             return;
         }
@@ -541,6 +545,7 @@ namespace janus
         if (this->stop_coroutine)
         {
             Log_info("REPLY SHUTTING DOWN");
+            *reply_epoch = 0;
             *f_ok = false;
             defer->reply();
             return;
@@ -585,6 +590,7 @@ namespace janus
         if (this->stop_coroutine)
         {
             Log_info("REPLY SHUTTING DOWN");
+            *reply_epoch = 0;
             *f_ok = false;
             defer->reply();
             return;
@@ -626,6 +632,7 @@ namespace janus
         if (this->stop_coroutine)
         {
             Log_info("REPLY SHUTTING DOWN");
+            *reply_epoch = 0;
             *f_ok = false;
             defer->reply();
             return;
@@ -671,6 +678,7 @@ namespace janus
         if (this->stop_coroutine)
         {
             Log_info("REPLY SHUTTING DOWN");
+            *reply_epoch = 0;
             *f_ok = false;
             defer->reply();
             return;
