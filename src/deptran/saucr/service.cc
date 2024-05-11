@@ -44,11 +44,13 @@ namespace janus
                                         const uint64_t &zxid_commit_epoch,
                                         const uint64_t &zxid_commit_count,
                                         const uint64_t &saucr_mode,
+                                        const vector<uint64_t> &last_logged_epochs,
+                                        const vector<uint64_t> &last_logged_cmd_counts,
                                         bool_t *f_ok,
                                         uint64_t *reply_epoch,
                                         rrr::DeferredReply *defer)
     {
-        svr_->HandleCommit(l_id, epoch, zxid_commit_epoch, zxid_commit_count, saucr_mode, f_ok, reply_epoch, defer);
+        svr_->HandleCommit(l_id, epoch, zxid_commit_epoch, zxid_commit_count, saucr_mode, last_logged_epochs, last_logged_cmd_counts, f_ok, reply_epoch, defer);
     }
 
     void SaucrServiceImpl::HandleHeartbeat(const uint64_t &l_id,
@@ -70,6 +72,14 @@ namespace janus
                                           rrr::DeferredReply *defer)
     {
         svr_->HandleSync(l_id, l_epoch, logs, saucr_mode, f_ok, reply_epoch, defer);
+    }
+
+    void SaucrServiceImpl::HandleGetLastLoggedEntryMap(bool_t *f_ok,
+                                                       vector<uint64_t> *last_logged_epochs,
+                                                       vector<uint64_t> *last_logged_cmd_counts,
+                                                       rrr::DeferredReply *defer)
+    {
+        svr_->HandleGetLastLoggedEntryMap(f_ok, last_logged_epochs, last_logged_cmd_counts, defer);
     }
 
 } // namespace janus;

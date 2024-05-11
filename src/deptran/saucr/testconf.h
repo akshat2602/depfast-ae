@@ -13,7 +13,7 @@ namespace janus
 #define DOWNRATE_N 1
 #define DOWNRATE_D 10
 // Give a generous 5 seconds for elections
-#define ELECTIONTIMEOUT 5000000
+#define ELECTIONTIMEOUT 10000000
 
 #define Print(format, ...) fprintf(stderr, format "\n", ##__VA_ARGS__)
 

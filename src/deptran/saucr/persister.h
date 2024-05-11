@@ -12,7 +12,9 @@ namespace janus
     private:
         int saucrstate_kind_;
         size_t saucrstate_size_ = -1;
+        size_t fast_switch_entry_size_ = -1;
         rrr::Marshal serialized_saucrstate_;
+        rrr::Marshal serialized_fast_switch_entry_;
         std::mutex mtx_{};
 
     public:
@@ -20,8 +22,11 @@ namespace janus
         ~Persister();
 
         void SaveSaucrState(shared_ptr<Marshallable> &curr_saucrstate);
+        void SaveFastSwitchEntry(shared_ptr<Marshallable> &curr_fast_switch_entry);
         shared_ptr<Marshallable> ReadSaucrState();
+        shared_ptr<Marshallable> ReadFastSwitchEntry();
         size_t SaucrStateSize();
+        size_t FastSwitchEntrySize();
     };
 
 } // namespace janus

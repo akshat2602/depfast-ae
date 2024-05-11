@@ -16,7 +16,7 @@ namespace janus
                                                                       uint64_t saucr_mode)
     {
         Log_info("Request vote sending from %lu", site_id);
-        auto ev = Reactor::CreateSpEvent<SaucrNewLeaderQuorumEvent>();
+        auto ev = Reactor::CreateSpEvent<SaucrNewLeaderQuorumEvent>(saucr_mode);
         auto proxies = rpc_par_proxies_[par_id];
         for (auto &p : proxies)
         {
@@ -55,7 +55,7 @@ namespace janus
                 }
                 else if (conflict_zxid.first == last_seen_zxid.first && conflict_zxid.second == last_seen_zxid.second)
                 {
-                    // Mark the vote as conflict
+                    // Mark the vote as yes
                     ev->VoteYes(p.first);
                 }
                 ev->reply_epochs_[p.first] = reply_epoch;
@@ -165,9 +165,17 @@ namespace janus
                                                             uint64_t l_epoch,
                                                             uint64_t zxid_commit_epoch,
                                                             uint64_t zxid_commit_count,
-                                                            uint64_t saucr_mode)
+                                                            uint64_t saucr_mode,
+                                                            vector<pair<uint64_t, uint64_t>> last_logged_entries)
     {
         Log_info("Commit sending from %lu", site_id);
+        vector<uint64_t> last_logged_epochs;
+        vector<uint64_t> last_logged_cmd_counts;
+        for (auto &e : last_logged_entries)
+        {
+            last_logged_epochs.push_back(e.first);
+            last_logged_cmd_counts.push_back(e.second);
+        }
         auto ev = Reactor::CreateSpEvent<SaucrBaseQuorumEvent>(NSERVERS, ceil(NSERVERS / 2));
         auto proxies = rpc_par_proxies_[par_id];
         for (auto &p : proxies)
@@ -185,10 +193,12 @@ namespace janus
                 fu->get_reply() >> f_ok >> reply_epoch;
                 if (f_ok)
                 {
+                    ev->committed_[p.first] = true;
                     ev->VoteYes();
                 }
                 else
                 {
+                    ev->committed_[p.first] = false;
                     ev->VoteNo();
                 }
                 ev->reply_epochs_[p.first] = reply_epoch;
@@ -200,6 +210,8 @@ namespace janus
                        zxid_commit_epoch,
                        zxid_commit_count,
                        saucr_mode,
+                       last_logged_epochs,
+                       last_logged_cmd_counts,
                        fuattr);
         }
         return ev;
@@ -249,6 +261,47 @@ namespace janus
                        saucr_mode,
                        fuattr);
         }
+    }
+
+    shared_ptr<SaucrRecoveryEvent> SaucrCommo::GetLastLoggedEntryMap(parid_t par_id, siteid_t site_id)
+    {
+        auto proxies = rpc_par_proxies_[par_id];
+        auto ev = Reactor::CreateSpEvent<SaucrRecoveryEvent>(NSERVERS, ceil(NSERVERS / 2));
+        for (auto &p : proxies)
+        {
+            if (p.first == site_id)
+            {
+                continue;
+            }
+            SaucrProxy *proxy = (SaucrProxy *)p.second;
+            FutureAttr fuattr;
+            fuattr.callback = [ev, p](Future *fu)
+            {
+                vector<uint64_t> last_logged_epochs;
+                vector<uint64_t> last_logged_cmd_counts;
+                bool_t f_ok;
+                fu->get_reply() >> f_ok >> last_logged_epochs >> last_logged_cmd_counts;
+                if (f_ok)
+                {
+                    vector<pair<uint64_t, uint64_t>> last_logged_entries;
+
+                    for (int i = 0; i < last_logged_epochs.size(); i++)
+                    {
+                        last_logged_entries.push_back({last_logged_epochs[i], last_logged_cmd_counts[i]});
+                    }
+                    ev->last_logged_entries_[p.first] = last_logged_entries;
+                    ev->VoteYes();
+                }
+                else
+                {
+                    ev->VoteNo();
+                }
+            };
+            Call_Async(proxy,
+                       GetLastLoggedEntryMap,
+                       fuattr);
+        }
+        return ev;
     }
 
 } // namespace janus

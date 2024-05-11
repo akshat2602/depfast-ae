@@ -11,6 +11,31 @@
 namespace janus
 {
 
+    class FastSwitchEntryMarshallable : public Marshallable
+    {
+    public:
+        FastSwitchEntryMarshallable() : Marshallable(MarshallDeputy::CMD_FAST_SWITCH_ENTRY) {}
+        uint64_t epoch;
+        uint64_t cmd_count;
+        string data;
+
+        Marshal &ToMarshal(Marshal &m) const override
+        {
+            m << epoch;
+            m << cmd_count;
+            m << data;
+            return m;
+        }
+
+        Marshal &FromMarshal(Marshal &m) override
+        {
+            m >> epoch;
+            m >> cmd_count;
+            m >> data;
+            return m;
+        }
+    };
+
     class StateMarshallable : public Marshallable
     {
     public:
@@ -74,13 +99,8 @@ namespace janus
     {
         FOLLOWER = 0,
         CANDIDATE = 1,
-        LEADER = 2
-    };
-
-    enum SAUCRState
-    {
-        SLOW_MODE = 0,
-        FAST_MODE = 1
+        LEADER = 2,
+        RECOVERING = 3
     };
 
     class SaucrServer : public TxLogServer
@@ -97,8 +117,12 @@ namespace janus
         uint64_t cmd_count = 1;
         bool_t stop_coroutine = false;
         uint64_t saucr_state = SAUCRState::SLOW_MODE;
-
         uint64_t heartbeat_timeout = HEARTBEAT_INTERVAL;
+
+        // Saucr specific variable to track the first entry in the fast switch mode
+        bool_t fast_switch = false;
+        pair<uint64_t, uint64_t> last_logged_entry = {0, 0};
+        vector<pair<uint64_t, uint64_t>> last_logged_entry_map = vector<pair<uint64_t, uint64_t>>(NSERVERS, {0, 0});
 
         uint64_t generate_timeout()
         {
@@ -106,6 +130,7 @@ namespace janus
         }
         void RunSaucrServer();
         void ProposalSender();
+        void RecoverFromShutdown();
 
         /* Helper functions for the state machine */
         void convertToCandidate();
@@ -118,6 +143,8 @@ namespace janus
         bool_t commitProposal(LogEntry &entry);
         void PersistState();
         void ReadPersistedState();
+        bool CompareFastSwitchEntry(shared_ptr<FastSwitchEntryMarshallable> &fast_switch_entry);
+        vector<pair<uint64_t, uint64_t>> GetLastLoggedEntryMap();
 
 #ifdef SAUCR_TEST_CORO
         int commit_timeout = 300000;
@@ -168,6 +195,8 @@ namespace janus
                           const uint64_t &zxid_commit_epoch,
                           const uint64_t &zxid_commit_count,
                           const uint64_t &saucr_mode,
+                          const vector<uint64_t> &last_logged_epochs,
+                          const vector<uint64_t> &last_logged_cmd_counts,
                           bool_t *f_ok,
                           uint64_t *reply_epoch,
                           rrr::DeferredReply *defer);
@@ -180,6 +209,12 @@ namespace janus
                         bool_t *f_ok,
                         uint64_t *reply_epoch,
                         rrr::DeferredReply *defer);
+        
+        // Handles a get LLE request
+        void HandleGetLastLoggedEntryMap(bool_t *f_ok,
+                                      vector<uint64_t> *last_logged_epoch,
+                                      vector<uint64_t> *last_logged_cmd_count,
+                                      rrr::DeferredReply *defer);
 
 #ifdef SAUCR_TEST_CORO
         bool Start(shared_ptr<Marshallable> &cmd, pair<uint64_t, uint64_t> *zxid);

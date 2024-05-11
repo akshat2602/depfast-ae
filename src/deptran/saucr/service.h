@@ -47,12 +47,14 @@ namespace janus
             *reply_epoch = 0;
         };
 
-        RpcHandler(Commit, 7,
+        RpcHandler(Commit, 9,
                    const uint64_t &, l_id,
                    const uint64_t &, l_epoch,
                    const uint64_t &, zxid_commit_epoch,
                    const uint64_t &, zxid_commit_count,
                    const uint64_t &, saucr_mode,
+                   const vector<uint64_t> &, last_logged_epochs,
+                   const vector<uint64_t> &, last_logged_cmd_counts,
                    bool_t *, f_ok,
                    uint64_t *, reply_epoch)
         {
@@ -81,6 +83,16 @@ namespace janus
         {
             *f_ok = false;
             *reply_epoch = 0;
+        };
+
+        RpcHandler(GetLastLoggedEntryMap, 3,
+                   bool_t *, f_ok,
+                   vector<uint64_t> *, last_logged_epochs,
+                   vector<uint64_t> *, last_logged_cmd_counts)
+        {
+            *f_ok = false;
+            last_logged_epochs->clear();
+            last_logged_cmd_counts->clear();
         };
     };
 } // namespace janus

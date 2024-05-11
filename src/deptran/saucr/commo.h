@@ -12,6 +12,12 @@ namespace janus
 #define HEARTBEAT_INTERVAL 100000
 #define WIDE_AREA_DELAY 40000 + (rand() % 10000)
 
+    enum SAUCRState
+    {
+        SLOW_MODE = 0,
+        FAST_MODE = 1
+    };
+
     enum SaucrVoteResult
     {
         SAUCR_VOTE_GRANTED = 0,
@@ -26,6 +32,8 @@ namespace janus
         uint64_t quorum_type = 0;
 
     public:
+        bool_t committed_[NSERVERS];
+
         SaucrBaseQuorumEvent(int n_total, uint64_t saucr_mode) : QuorumEvent(n_total, quorum_)
         {
             if (saucr_mode == SAUCRState::FAST_MODE)
@@ -127,6 +135,33 @@ namespace janus
         }
     };
 
+    class SaucrRecoveryEvent : public QuorumEvent
+    {
+    public:
+        SaucrRecoveryEvent(int n_total, int quorum_) : QuorumEvent(n_total, quorum_) {}
+
+        vector<vector<pair<uint64_t, uint64_t>>> last_logged_entries_ = vector<vector<pair<uint64_t, uint64_t>>>(NSERVERS, vector<pair<uint64_t, uint64_t>>());
+
+        void VoteYes()
+        {
+            return QuorumEvent::VoteYes();
+        }
+        void VoteNo()
+        {
+            return QuorumEvent::VoteNo();
+        }
+
+        bool Yes() override
+        {
+            return QuorumEvent::Yes();
+        }
+
+        bool No() override
+        {
+            return QuorumEvent::No();
+        }
+    };
+
     class TxData;
     class SaucrCommo : public Communicator
     {
@@ -160,7 +195,8 @@ namespace janus
                                                     uint64_t l_epoch,
                                                     uint64_t zxid_commit_epoch,
                                                     uint64_t zxid_commit_count,
-                                                    uint64_t saucr_mode);
+                                                    uint64_t saucr_mode,
+                                                    vector<pair<uint64_t, uint64_t>> last_logged_entries);
 
         void SendSync(parid_t par_id,
                       siteid_t site_id,
@@ -169,6 +205,8 @@ namespace janus
                       shared_ptr<SaucrNewLeaderQuorumEvent> ev,
                       vector<vector<LogEntry>> &logs,
                       uint64_t saucr_mode);
+
+        shared_ptr<SaucrRecoveryEvent> GetLastLoggedEntryMap(parid_t par_id, siteid_t site_id);
 
         /* Do not modify this class below here */
 

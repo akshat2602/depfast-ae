@@ -45,6 +45,7 @@ class MarshallDeputy {
     CMD_TPC_BATCH = 11,
     CMD_ZAB_COMMIT = 12,
     CMD_STATE = 13,
+    CMD_FAST_SWITCH_ENTRY = 14,
   };
   /**
    * This should be called by the rpc layer.

@@ -15,6 +15,11 @@ namespace janus
                                                             {
                                                                 return new StateMarshallable;
                                                             });
+    static int volatile x3 = MarshallDeputy::RegInitializer(MarshallDeputy::CMD_FAST_SWITCH_ENTRY,
+                                                            []() -> Marshallable *
+                                                            {
+                                                                return new FastSwitchEntryMarshallable;
+                                                            });
 
     SaucrServer::SaucrServer(Frame *frame, shared_ptr<Persister> persister_)
     {
@@ -29,7 +34,7 @@ namespace janus
         this->mtx_.lock();
         this->stop_coroutine = true;
         this->mtx_.unlock();
-        Log_debug("Shutting down");
+        Log_info("Shutting down");
         auto ev = Reactor::CreateSpEvent<TimeoutEvent>(2500000);
         ev->Wait();
         this->PersistState();
@@ -38,11 +43,10 @@ namespace janus
 
     void SaucrServer::Setup()
     {
-        size_t temp = this->persister->SaucrStateSize();
-        if (temp != -1)
-        {
-            this->ReadPersistedState();
-        }
+        // Add logic to check if the server was operating in fast mode/slow mode before shutdown
+        // If the server was operating in fast mode, more steps are needed to recover the state
+        // If the server was operating in slow mode, the server can recover the state from the persisted state
+        RecoverFromShutdown();
         RunSaucrServer();
         ProposalSender();
     }
@@ -90,14 +94,21 @@ namespace janus
 
     void SaucrServer::PersistState()
     {
+        Log_info("Saucr state: %d", saucr_state);
+        if (saucr_state == SAUCRState::FAST_MODE)
+        {
+            Log_info("Not persisting state in fast mode");
+            return;
+        }
+        Log_info("Persisting state");
         auto curr_saucrstate = make_shared<StateMarshallable>();
-        // Log_debug("Locking mutex");
+        // Log_info("Locking mutex");
         this->mtx_.lock();
         curr_saucrstate->log = this->log;
         curr_saucrstate->commit_log = this->commit_log;
         curr_saucrstate->voted_for = this->voted_for;
         curr_saucrstate->current_epoch = this->current_epoch;
-        // Log_debug("Unlocking mutex");
+        // Log_info("Unlocking mutex");
         this->mtx_.unlock();
         shared_ptr<Marshallable> m = curr_saucrstate;
         this->persister->SaveSaucrState(m);
@@ -110,15 +121,98 @@ namespace janus
         shared_ptr<Marshallable> m = curr_saucrstate;
         m = this->persister->ReadSaucrState();
         curr_saucrstate = dynamic_pointer_cast<StateMarshallable>(m);
-        // Log_debug("Locking mutex");
+        // Log_info("Locking mutex");
         this->mtx_.lock();
         this->log = curr_saucrstate->log;
         this->commit_log = curr_saucrstate->commit_log;
         this->voted_for = curr_saucrstate->voted_for;
         this->current_epoch = curr_saucrstate->current_epoch;
-        // Log_debug("Unlocking mutex");
+        // Log_info("Unlocking mutex");
         this->mtx_.unlock();
         return;
+    }
+
+    bool SaucrServer::CompareFastSwitchEntry(shared_ptr<FastSwitchEntryMarshallable> &fast_switch_entry)
+    {
+        uint64_t temp_epoch;
+        uint64_t temp_cmd_count;
+        // Compare fast switch entry with the on disk entry
+        auto curr_saucrstate = make_shared<StateMarshallable>();
+        shared_ptr<Marshallable> m = curr_saucrstate;
+        m = this->persister->ReadSaucrState();
+        curr_saucrstate = dynamic_pointer_cast<StateMarshallable>(m);
+
+        auto temp_end_entry = curr_saucrstate->commit_log.back();
+        temp_epoch = temp_end_entry.epoch;
+        temp_cmd_count = temp_end_entry.cmd_count;
+
+        this->mtx_.lock();
+        if (fast_switch_entry->epoch > temp_epoch)
+        {
+            // Log_info("Unlocking mutex");
+            this->mtx_.unlock();
+            return false;
+        }
+        else if (fast_switch_entry->epoch == temp_epoch && fast_switch_entry->cmd_count > temp_cmd_count)
+        {
+            // Log_info("Unlocking mutex");
+            this->mtx_.unlock();
+            return false;
+        }
+        // Log_info("Unlocking mutex");
+        this->mtx_.unlock();
+        return true;
+    }
+
+    void SaucrServer::RecoverFromShutdown()
+    {
+        Coroutine::CreateRun([this]()
+                             {
+                    mtx_.lock();
+        state = ZABState::RECOVERING;
+        mtx_.unlock();
+        size_t fast_switch_size = this->persister->FastSwitchEntrySize();
+        if (fast_switch_size != -1)
+        {
+            auto curr_fast_switch_entry = make_shared<FastSwitchEntryMarshallable>();
+            shared_ptr<Marshallable> m = curr_fast_switch_entry;
+            m = this->persister->ReadFastSwitchEntry();
+            curr_fast_switch_entry = dynamic_pointer_cast<FastSwitchEntryMarshallable>(m);
+            Log_info("Fast Switch Entry: %lu, %lu", curr_fast_switch_entry->epoch, curr_fast_switch_entry->cmd_count);
+            if (CompareFastSwitchEntry(curr_fast_switch_entry))
+            {
+                mtx_.lock();
+                state = ZABState::FOLLOWER;
+                mtx_.unlock();
+                Log_info("On disk entry is higher than fast switch entry");
+                if (this->persister->SaucrStateSize() != -1)
+                {
+                    this->ReadPersistedState();
+                }
+            }
+            else
+            {
+                // If the fast switch entry is higher than the on disk entry, the server was operating in fast mode
+                // The server needs to recover the state from the fast switch entry
+                // Get LLE map from all other servers and then get max LLE, set it to your last logged entry and then start from there
+                Log_info("Fast Switch Entry is higher than on disk entry");
+                auto temp = this->GetLastLoggedEntryMap();
+                mtx_.lock();
+                last_logged_entry_map = temp;
+                state = ZABState::FOLLOWER;
+                mtx_.unlock();
+            }
+        }
+        else
+        {
+            mtx_.lock();
+            state = ZABState::FOLLOWER;
+            mtx_.unlock();
+            if (this->persister->SaucrStateSize() != -1)
+            {
+                this->ReadPersistedState();
+            }
+        } });
     }
 
     // Check if there are any new proposals to propose
@@ -153,7 +247,7 @@ namespace janus
                             {
                                 std::shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
                                 app_next_(*cmd);
-                                Log_info("Committed Proposal");
+                                Log_info("Committed Proposal");       
                             }
                         }
                         this->PersistState();
@@ -184,6 +278,7 @@ namespace janus
                 mtx_.lock();
                 if (!heartbeat_received)
                 {
+                    saucr_state = SAUCRState::SLOW_MODE;
                     mtx_.unlock();
                     // Transition to candidate and request for votes
                     convertToCandidate();
@@ -231,6 +326,29 @@ namespace janus
 
     /* HELPER FUNCTIONS */
 
+    vector<pair<uint64_t, uint64_t>> SaucrServer::GetLastLoggedEntryMap()
+    {
+        // Get the last logged entry map from all other servers
+        auto ev = commo()->GetLastLoggedEntryMap(partition_id_, loc_id_);
+        ev->Wait(20000);
+        if (ev->No())
+        {
+            Log_info("No response from other servers");
+            return last_logged_entry_map;
+        }
+        for (int i = 0; i < NSERVERS; i++)
+        {
+            for (int j = 0; j < NSERVERS; j++)
+            {
+                if (ev->last_logged_entries_[j][i] > last_logged_entry_map[i])
+                {
+                    last_logged_entry_map[i] = ev->last_logged_entries_[j][i];
+                }
+            }
+        }
+        return last_logged_entry_map;
+    }
+
     vector<vector<LogEntry>> SaucrServer::createSyncLogs(shared_ptr<SaucrNewLeaderQuorumEvent> &ev)
     {
         vector<vector<LogEntry>> syncLogs;
@@ -258,6 +376,12 @@ namespace janus
     {
         pair<uint64_t, uint64_t> last_seen_zxid = {0, 0};
         mtx_.lock();
+        if (state == ZABState::RECOVERING)
+        {
+            auto lle = last_logged_entry;
+            mtx_.unlock();
+            return lle;
+        }
         if (commit_log.size() > 0)
         {
             auto entry = commit_log.back();
@@ -288,6 +412,20 @@ namespace janus
                 return ev->No();
             }
         }
+        if (ev->Yes())
+        {
+            mtx_.lock();
+            saucr_state = SAUCRState::FAST_MODE;
+            mtx_.unlock();
+            return ev->Yes();
+        }
+        else if (ev->BareYes())
+        {
+            mtx_.lock();
+            saucr_state = SAUCRState::SLOW_MODE;
+            mtx_.unlock();
+            return true;
+        }
         return ev->Yes();
     }
 
@@ -316,7 +454,20 @@ namespace janus
                     return ev->No();
                 }
             }
-            return ev->Yes();
+            if (ev->Yes())
+            {
+                mtx_.lock();
+                saucr_state = SAUCRState::FAST_MODE;
+                mtx_.unlock();
+                return ev->Yes();
+            }
+            else if (ev->BareYes())
+            {
+                mtx_.lock();
+                saucr_state = SAUCRState::SLOW_MODE;
+                mtx_.unlock();
+                return true;
+            }
         }
         for (auto reply_epoch : ev->reply_epochs_)
         {
@@ -331,6 +482,20 @@ namespace janus
                 this->PersistState();
                 return ev->No();
             }
+        }
+        if (ev->Yes())
+        {
+            mtx_.lock();
+            saucr_state = SAUCRState::FAST_MODE;
+            mtx_.unlock();
+            return ev->Yes();
+        }
+        else if (ev->BareYes())
+        {
+            mtx_.lock();
+            saucr_state = SAUCRState::SLOW_MODE;
+            mtx_.unlock();
+            return true;
         }
         return ev->Yes();
     }
@@ -354,6 +519,20 @@ namespace janus
             }
         }
         Log_info("Sent Proposal from: %lu, with epoch: %lu", loc_id_, current_epoch);
+        if (ev->Yes())
+        {
+            mtx_.lock();
+            saucr_state = SAUCRState::FAST_MODE;
+            mtx_.unlock();
+            return ev->Yes();
+        }
+        else if (ev->BareYes())
+        {
+            mtx_.lock();
+            saucr_state = SAUCRState::SLOW_MODE;
+            mtx_.unlock();
+            return true;
+        }
         return ev->Yes();
     }
 
@@ -361,7 +540,7 @@ namespace janus
     {
         commit_log.push_back(entry);
         zxid_commit_log_index_map[{entry.epoch, entry.cmd_count}] = commit_log.size() - 1;
-        auto ev = commo()->SendCommit(partition_id_, loc_id_, loc_id_, current_epoch, entry.epoch, entry.cmd_count, saucr_state);
+        auto ev = commo()->SendCommit(partition_id_, loc_id_, loc_id_, current_epoch, entry.epoch, entry.cmd_count, saucr_state, last_logged_entry_map);
         ev->Wait(20000);
         // Check if any server has rejected the commit due to a epoch conflict
         for (auto reply_epoch : ev->reply_epochs_)
@@ -379,6 +558,35 @@ namespace janus
             }
         }
         Log_info("Sent Commit from: %lu, with epoch: %lu", loc_id_, current_epoch);
+        if (ev->Yes())
+        {
+            mtx_.lock();
+            saucr_state = SAUCRState::FAST_MODE;
+            // Loop over committed and change last logged entry map
+            for (int i = 0; i < NSERVERS; i++)
+            {
+                if (ev->committed_[i])
+                {
+                    last_logged_entry_map[i] = {entry.epoch, entry.cmd_count};
+                }
+            }
+            mtx_.unlock();
+            return ev->Yes();
+        }
+        else if (ev->BareYes())
+        {
+            mtx_.lock();
+            saucr_state = SAUCRState::SLOW_MODE;
+            for (int i = 0; i < NSERVERS; i++)
+            {
+                if (ev->committed_[i])
+                {
+                    last_logged_entry_map[i] = {entry.epoch, entry.cmd_count};
+                }
+            }
+            mtx_.unlock();
+            return true;
+        }
         return ev->Yes();
     }
 
@@ -563,6 +771,7 @@ namespace janus
             defer->reply();
             return;
         }
+        saucr_state = saucr_mode;
         if (l_epoch > current_epoch)
         {
             Log_info("Changing epoch from %lu to %lu", current_epoch, l_epoch);
@@ -609,6 +818,7 @@ namespace janus
             defer->reply();
             return;
         }
+        saucr_state = saucr_mode;
         if (l_epoch > current_epoch)
         {
             Log_info("Changing epoch from %lu to %lu", current_epoch, l_epoch);
@@ -652,6 +862,7 @@ namespace janus
             defer->reply();
             return;
         }
+        saucr_state = saucr_mode;
         if (l_epoch > current_epoch)
         {
             Log_info("Changing epoch from %lu to %lu", current_epoch, l_epoch);
@@ -676,6 +887,8 @@ namespace janus
                                    const uint64_t &zxid_commit_epoch,
                                    const uint64_t &zxid_commit_count,
                                    const uint64_t &saucr_mode,
+                                   const vector<uint64_t> &last_logged_epochs,
+                                   const vector<uint64_t> &last_logged_cmd_counts,
                                    bool_t *f_ok,
                                    uint64_t *reply_epoch,
                                    rrr::DeferredReply *defer)
@@ -699,6 +912,7 @@ namespace janus
             defer->reply();
             return;
         }
+        saucr_state = saucr_mode;
         if (l_epoch > current_epoch)
         {
             Log_info("Changing epoch from %lu to %lu", current_epoch, l_epoch);
@@ -713,6 +927,12 @@ namespace janus
         auto entry = log[idx];
         commit_log.push_back(entry);
         zxid_commit_log_index_map[{zxid_commit_epoch, zxid_commit_count}] = commit_log.size() - 1;
+
+        for (int i = 0; i < NSERVERS; i++)
+        {
+            last_logged_entry_map[i] = {last_logged_epochs[i], last_logged_cmd_counts[i]};
+        }
+
         mtx_.unlock();
         shared_ptr<Marshallable> cmd = const_cast<MarshallDeputy &>(entry.data).sp_data_;
         // Only execute the command if the command is not a noop
@@ -723,6 +943,39 @@ namespace janus
             app_next_(*cmd);
         }
         this->PersistState();
+        defer->reply();
+        return;
+    }
+
+    void SaucrServer::HandleGetLastLoggedEntryMap(bool_t *f_ok,
+                                                  vector<uint64_t> *last_logged_epochs,
+                                                  vector<uint64_t> *last_logged_cmd_counts,
+                                                  rrr::DeferredReply *defer)
+    {
+        if (this->stop_coroutine)
+        {
+            Log_info("REPLY SHUTTING DOWN");
+            *f_ok = false;
+            defer->reply();
+            return;
+        }
+        *f_ok = true;
+        mtx_.lock();
+        if (state == ZABState::RECOVERING)
+        {
+            mtx_.unlock();
+            *f_ok = false;
+            *last_logged_cmd_counts = {};
+            *last_logged_epochs = {};
+            defer->reply();
+            return;
+        }
+        for (int i = 0; i < NSERVERS; i++)
+        {
+            last_logged_epochs->push_back(last_logged_entry_map[i].first);
+            last_logged_cmd_counts->push_back(last_logged_entry_map[i].second);
+        }
+        mtx_.unlock();
         defer->reply();
         return;
     }

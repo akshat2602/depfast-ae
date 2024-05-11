@@ -123,7 +123,20 @@ bool Event::Test() {
       Log_info("event status ready, triggered?");
     } else if (status_ == DONE) {
       // do nothing
-    } else {
+    } else if (status_ == TIMEOUT) {
+      // If the event is triggered by timeout, move it to ready list.
+      auto sp_coro = wp_coro_.lock();
+      verify(sp_coro);
+      verify(status_ != DEBUG);
+      status_ = READY;
+      if (rcd_wait_) {
+        auto& waiting_events = Reactor::GetReactor()->waiting_events_;
+        auto it = waiting_events.find(shared_from_this());
+        if (it != waiting_events.end()) waiting_events.erase(it);
+      }
+      Reactor::GetReactor()->ready_events_.push_back(shared_from_this()); 
+    }
+     else {
       verify(0);
     }
     return true;
